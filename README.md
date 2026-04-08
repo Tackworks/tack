@@ -102,11 +102,14 @@ Environment variables:
 | `TACK_DB` | `./data/board.db` | SQLite database path |
 | `TACK_WEBHOOKS` | (none) | Comma-separated webhook URLs |
 | `TACK_DONE_ARCHIVE_DAYS` | `7` | Auto-hide done cards older than N days from board view |
+| `TACK_DEFER_DAYS` | `7` | Days before deferred cards auto-return to Awaiting Decision |
+| `TACK_API_KEY` | (none) | Optional API key for write operations (reads remain open) |
 
 ## Keyboard Shortcuts
 
 - `n` — New card
-- `Esc` — Close modal
+- `/` — Focus search
+- `Esc` — Close modal / clear search
 - Double-click card to edit
 
 ## Dependencies

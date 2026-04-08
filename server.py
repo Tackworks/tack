@@ -12,18 +12,46 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from contextlib import contextmanager
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import Optional
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import JSONResponse
 
 DB_PATH = Path(os.environ.get("TACK_DB", str(Path(__file__).parent / "data" / "board.db")))
 STATIC_DIR = Path(__file__).parent / "static"
 HOST = os.environ.get("TACK_HOST", "127.0.0.1")
 PORT = int(os.environ.get("TACK_PORT", "8795"))
+API_KEY = os.environ.get("TACK_API_KEY", "")
 
-app = FastAPI(title="Tack", version="1.0.0")
+app = FastAPI(title="Tack", version="1.1.0")
+
+
+# --- Optional API Key Auth ---
+
+OPEN_PATHS = {"/", "/health", "/static"}
+READ_METHODS = {"GET", "HEAD", "OPTIONS"}
+
+class ApiKeyMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        if not API_KEY:
+            return await call_next(request)
+        # Allow static files, health, and UI
+        path = request.url.path
+        if path == "/" or path.startswith("/static") or path == "/health":
+            return await call_next(request)
+        # Allow reads without auth (board viewing)
+        if request.method in READ_METHODS:
+            return await call_next(request)
+        # Check API key for write operations
+        key = request.headers.get("x-api-key") or request.headers.get("authorization", "").removeprefix("Bearer ")
+        if key != API_KEY:
+            return JSONResponse(status_code=401, content={"detail": "Invalid or missing API key"})
+        return await call_next(request)
+
+app.add_middleware(ApiKeyMiddleware)
 
 
 # --- Database ---
@@ -65,12 +93,12 @@ def init_db():
                 timestamp TEXT NOT NULL
             )
         """)
-        # Migrate: add columns to cards if missing
+        # Migrate: add columns to cards if missing (duplicate column errors are expected)
         for col in ["claimed_by", "claimed_at", "claim_expires_at", "decision", "approval", "defer_until"]:
             try:
                 db.execute(f"ALTER TABLE cards ADD COLUMN {col} TEXT DEFAULT ''")
-            except Exception:
-                pass
+            except sqlite3.OperationalError:
+                pass  # Column already exists
 
 
 @contextmanager
