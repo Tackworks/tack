@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.1.0] - 2026-04-08
+
+### Added
+- **Dark/Light theme toggle** (Issue #1) — Click the moon/sun icon in the header or use localStorage to persist preference. Light theme designed for daylight readability.
+- **Card search/filter** (Issue #2) — Real-time search across title, description, assignee, and tags. Press `/` to focus search, `Escape` to clear. Column counts show `matches/total` while filtering.
+- **Deferred column** — Cards auto-return to Awaiting Decision after configurable period (`TACK_DEFER_DAYS`, default 7 days).
+- **Note on move** — Optional note popup when dragging cards between columns.
+- **Notes in card modal** — View and add notes directly from the card edit dialog.
+- **Delete with reason** — Card deletion requires a reason (via `POST /api/cards/{id}/delete`).
+- **Server-side search** — `GET /api/cards?q=term&tag=name&priority=high` for API consumers.
+
 ## [1.0.0] - 2026-04-08
 
 Initial public release.

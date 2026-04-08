@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Tack</title>
 <style>
-  :root {
+  :root, [data-theme="dark"] {
     --bg: #1a1a2e;
     --surface: #16213e;
     --card-bg: #0f3460;
@@ -25,6 +25,27 @@
     --normal: #4ea8de;
     --low: #8888aa;
     --font: 'SF Mono', 'Cascadia Code', 'JetBrains Mono', 'Fira Code', monospace;
+  }
+
+  [data-theme="light"] {
+    --bg: #f0f2f5;
+    --surface: #ffffff;
+    --card-bg: #ffffff;
+    --card-hover: #f5f7fa;
+    --border: #d0d5dd;
+    --text: #1a1a2e;
+    --text-dim: #667085;
+    --accent: #0d9373;
+    --inbox: #5e60ce;
+    --progress: #2e7db8;
+    --decision: #c48520;
+    --approval-pending: #2e7db8;
+    --done: #2d9254;
+    --blocked: #cc3333;
+    --critical: #cc2222;
+    --high: #dd6622;
+    --normal: #2e7db8;
+    --low: #667085;
   }
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -52,9 +73,25 @@
   header h1 { font-size: 16px; font-weight: 600; color: var(--accent); }
   header h1 span { color: var(--text-dim); font-weight: 400; font-size: 12px; margin-left: 8px; }
 
+  .header-controls { display: flex; align-items: center; gap: 8px; flex: 1; margin: 0 16px; max-width: 400px; }
+  #search-input {
+    flex: 1; background: var(--bg); border: 1px solid var(--border); color: var(--text);
+    font-family: var(--font); font-size: 12px; padding: 5px 10px; border-radius: 4px;
+    min-width: 120px;
+  }
+  #search-input::placeholder { color: var(--text-dim); }
+  #search-input:focus { outline: none; border-color: var(--accent); }
+
   .header-right { display: flex; align-items: center; gap: 12px; }
   .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--done); display: inline-block; }
   .status-text { font-size: 11px; color: var(--text-dim); }
+
+  #theme-toggle {
+    background: var(--bg); border: 1px solid var(--border); color: var(--text-dim);
+    padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 14px; line-height: 1;
+    font-family: var(--font);
+  }
+  #theme-toggle:hover { border-color: var(--accent); color: var(--text); }
 
   #add-card-btn {
     background: var(--accent); color: var(--bg); border: none; padding: 6px 14px;
@@ -85,6 +122,7 @@
   .column[data-column="in_progress"] .column-header { border-bottom-color: var(--progress); }
   .column[data-column="awaiting_decision"] .column-header { border-bottom-color: var(--decision); }
   .column[data-column="awaiting_approval"] .column-header { border-bottom-color: var(--approval-pending); }
+  .column[data-column="deferred"] .column-header { border-bottom-color: #9b7dd4; }
   .column[data-column="done"] .column-header { border-bottom-color: var(--done); }
   .column[data-column="blocked"] .column-header { border-bottom-color: var(--blocked); }
 
@@ -294,6 +332,45 @@
   .activity-item .actor { color: var(--accent); font-weight: 600; }
   .empty-state { text-align: center; padding: 30px 10px; color: var(--text-dim); font-size: 11px; }
 
+  .note-modal-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 200;
+    justify-content: center; align-items: center;
+  }
+  .note-modal-overlay.active { display: flex; }
+  .note-modal {
+    background: var(--surface); border: 1px solid var(--accent); border-radius: 8px;
+    padding: 16px 20px; width: 380px;
+  }
+  .note-modal h3 { font-size: 13px; color: var(--accent); margin-bottom: 4px; }
+  .note-modal .note-move-info { font-size: 11px; color: var(--text-dim); margin-bottom: 12px; }
+  .note-modal textarea {
+    width: 100%; background: var(--bg); border: 1px solid var(--border); color: var(--text);
+    font-family: var(--font); font-size: 12px; padding: 8px 10px; border-radius: 4px;
+    resize: vertical; min-height: 60px;
+  }
+  .note-modal .note-modal-buttons { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; }
+  .note-modal .note-modal-buttons button {
+    padding: 5px 14px; border-radius: 4px; font-family: var(--font); font-size: 11px;
+    cursor: pointer; border: 1px solid var(--border);
+  }
+
+  .notes-section { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 10px; }
+  .notes-section h4 { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+  .notes-list { max-height: 160px; overflow-y: auto; margin-bottom: 8px; }
+  .note-entry { background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; margin-bottom: 4px; font-size: 11px; line-height: 1.4; }
+  .note-entry .note-meta { font-size: 9px; color: var(--text-dim); margin-bottom: 2px; }
+  .note-entry .note-content { color: var(--text); }
+  .add-note-row { display: flex; gap: 6px; }
+  .add-note-row input {
+    flex: 1; background: var(--bg); border: 1px solid var(--border); color: var(--text);
+    font-family: var(--font); font-size: 12px; padding: 6px 8px; border-radius: 4px;
+  }
+  .add-note-row button {
+    background: var(--accent); color: var(--bg); border: none; padding: 6px 12px;
+    border-radius: 4px; font-family: var(--font); font-size: 11px; font-weight: 600;
+    cursor: pointer; white-space: nowrap;
+  }
+
   @media (max-width: 768px) { .column { min-width: 200px; } }
 </style>
 </head>
@@ -301,7 +378,11 @@
 
 <header>
   <h1>TACK <span>Task Board</span></h1>
+  <div class="header-controls">
+    <input type="text" id="search-input" placeholder="Search cards... (/)">
+  </div>
   <div class="header-right">
+    <button id="theme-toggle" title="Toggle light/dark theme">&#9789;</button>
     <span class="status-dot"></span>
     <span class="status-text" id="status-text">connected</span>
     <button id="add-card-btn">+ New Card</button>
@@ -328,6 +409,10 @@
   <div class="column" data-column="awaiting_approval">
     <div class="column-header">Awaiting Approval <span class="count" id="count-awaiting_approval">0</span></div>
     <div class="card-list" id="list-awaiting_approval"></div>
+  </div>
+  <div class="column" data-column="deferred">
+    <div class="column-header">Deferred <span class="count" id="count-deferred">0</span></div>
+    <div class="card-list" id="list-deferred"></div>
   </div>
   <div class="column" data-column="blocked">
     <div class="column-header">Blocked <span class="count" id="count-blocked">0</span></div>
@@ -358,6 +443,7 @@
       <option value="in_progress">In Progress</option>
       <option value="awaiting_decision">Awaiting Decision</option>
       <option value="awaiting_approval">Awaiting Approval</option>
+      <option value="deferred">Deferred</option>
       <option value="blocked">Blocked</option>
       <option value="done">Done</option>
     </select>
@@ -372,6 +458,14 @@
     </select>
     <label>Tags (comma-separated)</label>
     <input type="text" id="card-tags" placeholder="feature, bugfix, research...">
+    <div class="notes-section" id="notes-section" style="display:none">
+      <h4>Notes</h4>
+      <div class="notes-list" id="notes-list"></div>
+      <div class="add-note-row">
+        <input type="text" id="new-note-input" placeholder="Add a note...">
+        <button onclick="addNoteFromModal()">Add</button>
+      </div>
+    </div>
     <div class="modal-buttons">
       <button class="btn-cancel" onclick="closeModal()">Cancel</button>
       <button class="btn-danger" id="delete-btn" onclick="deleteCard()" style="display:none">Delete</button>
@@ -380,10 +474,27 @@
   </div>
 </div>
 
+<div class="note-modal-overlay" id="note-move-overlay">
+  <div class="note-modal">
+    <h3>Add a note?</h3>
+    <div class="note-move-info" id="note-move-info"></div>
+    <textarea id="note-move-text" placeholder="Optional context for this move..."></textarea>
+    <div class="note-modal-buttons">
+      <button class="btn-cancel" onclick="skipMoveNote()">Skip</button>
+      <button class="btn-primary" onclick="saveMoveNote()">Add Note</button>
+    </div>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js"></script>
 <script>
 const API = '';
-const COLUMNS = ['inbox', 'approved', 'in_progress', 'awaiting_decision', 'awaiting_approval', 'blocked', 'done'];
+const COLUMNS = ['inbox', 'approved', 'in_progress', 'awaiting_decision', 'awaiting_approval', 'deferred', 'blocked', 'done'];
+const COLUMN_LABELS = {
+  inbox: 'Inbox', approved: 'Approved', in_progress: 'In Progress',
+  awaiting_decision: 'Awaiting Decision', awaiting_approval: 'Awaiting Approval',
+  deferred: 'Deferred', blocked: 'Blocked', done: 'Done'
+};
 let boardData = {};
 
 async function fetchBoard() {
@@ -416,9 +527,15 @@ async function fetchActivity() {
 function renderBoard() {
   for (const col of COLUMNS) {
     const list = document.getElementById(`list-${col}`);
-    const cards = boardData[col] || [];
-    document.getElementById(`count-${col}`).textContent = cards.length;
-    if (cards.length === 0) { list.innerHTML = '<div class="empty-state">No cards</div>'; continue; }
+    const allCards = boardData[col] || [];
+    const cards = filterCards(allCards);
+    document.getElementById(`count-${col}`).textContent = searchQuery ? `${cards.length}/${allCards.length}` : allCards.length;
+    if (cards.length === 0) {
+      list.innerHTML = searchQuery && allCards.length > 0
+        ? '<div class="empty-state">No matches</div>'
+        : '<div class="empty-state">No cards</div>';
+      continue;
+    }
     list.innerHTML = cards.map(c => renderCard(c)).join('');
   }
 }
@@ -502,6 +619,7 @@ function initSortable() {
       onEnd: async function(evt) {
         const cardId = evt.item.dataset.id;
         const newCol = evt.to.id.replace('list-', '');
+        const oldCol = evt.from.id.replace('list-', '');
         if (!cardId) return;
         try {
           await fetch(`${API}/api/cards/${cardId}/move`, {
@@ -509,6 +627,7 @@ function initSortable() {
             body: JSON.stringify({ column_name: newCol, position: evt.newIndex })
           });
           await fetchBoard(); await fetchActivity();
+          if (oldCol !== newCol) { showMoveNoteModal(cardId, oldCol, newCol); }
         } catch (e) { await fetchBoard(); }
       }
     });
@@ -531,10 +650,21 @@ function closeModal() {
   document.getElementById('card-priority').value = 'normal';
   document.getElementById('card-tags').value = '';
   document.getElementById('delete-btn').style.display = 'none';
+  document.getElementById('notes-section').style.display = 'none';
+  document.getElementById('notes-list').innerHTML = '';
+  document.getElementById('new-note-input').value = '';
 }
 
 document.getElementById('add-card-btn').onclick = () => { closeModal(); openModal('New Card'); };
 document.getElementById('modal-overlay').onclick = (e) => { if (e.target === e.currentTarget) closeModal(); };
+document.getElementById('note-move-overlay').onclick = (e) => { if (e.target === e.currentTarget) skipMoveNote(); };
+
+document.getElementById('new-note-input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); addNoteFromModal(); }
+});
+document.getElementById('note-move-text').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveMoveNote(); }
+});
 
 async function editCard(cardId) {
   try {
@@ -549,6 +679,7 @@ async function editCard(cardId) {
     document.getElementById('card-tags').value = (card.tags || []).join(', ');
     document.getElementById('delete-btn').style.display = 'inline-block';
     openModal('Edit Card');
+    await loadCardNotes(card.id);
   } catch (e) {}
 }
 
@@ -575,8 +706,17 @@ async function saveCard() {
 
 async function deleteCard() {
   const id = document.getElementById('card-id').value;
-  if (!id || !confirm('Delete this card?')) return;
-  try { await fetch(`${API}/api/cards/${id}`, { method: 'DELETE' }); closeModal(); await fetchBoard(); await fetchActivity(); } catch (e) {}
+  if (!id) return;
+  const reason = prompt('Why are you deleting this card? (consolidation, no longer relevant, etc.)');
+  if (!reason) return;
+  try {
+    await fetch(`${API}/api/cards/${id}/delete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason: reason, actor: 'user' })
+    });
+    closeModal(); await fetchBoard(); await fetchActivity();
+  } catch (e) { console.error('Delete failed:', e); }
 }
 
 async function submitDecision(cardId, choice) {
@@ -607,9 +747,88 @@ async function submitApproval(cardId, approved) {
   } catch (e) { console.error('Approval failed:', e); }
 }
 
+// --- Note on Move ---
+let pendingMoveCardId = null;
+
+function showMoveNoteModal(cardId, fromCol, toCol) {
+  pendingMoveCardId = cardId;
+  const fromLabel = COLUMN_LABELS[fromCol] || fromCol;
+  const toLabel = COLUMN_LABELS[toCol] || toCol;
+  let cardTitle = cardId;
+  for (const col of COLUMNS) {
+    const found = (boardData[col] || []).find(c => c.id === cardId);
+    if (found) { cardTitle = found.title; break; }
+  }
+  document.getElementById('note-move-info').textContent = `${cardTitle} — ${fromLabel} → ${toLabel}`;
+  document.getElementById('note-move-text').value = '';
+  document.getElementById('note-move-overlay').classList.add('active');
+  document.getElementById('note-move-text').focus();
+}
+
+function skipMoveNote() {
+  pendingMoveCardId = null;
+  document.getElementById('note-move-overlay').classList.remove('active');
+}
+
+async function saveMoveNote() {
+  const text = document.getElementById('note-move-text').value.trim();
+  if (!text || !pendingMoveCardId) { skipMoveNote(); return; }
+  try {
+    await fetch(`${API}/api/cards/${pendingMoveCardId}/notes`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: text, author: 'user' })
+    });
+    await fetchActivity();
+  } catch (e) { console.error('Note save failed:', e); }
+  skipMoveNote();
+}
+
+// --- Notes in Card Modal ---
+async function loadCardNotes(cardId) {
+  const section = document.getElementById('notes-section');
+  const list = document.getElementById('notes-list');
+  if (!cardId) { section.style.display = 'none'; return; }
+  try {
+    const res = await fetch(`${API}/api/cards/${cardId}/notes`);
+    const notes = await res.json();
+    section.style.display = 'block';
+    if (notes.length === 0) {
+      list.innerHTML = '<div style="font-size:10px;color:var(--text-dim)">No notes yet</div>';
+    } else {
+      list.innerHTML = notes.map(n => `
+        <div class="note-entry">
+          <div class="note-meta">${escHtml(n.author || 'system')} — ${timeAgo(n.timestamp)}</div>
+          <div class="note-content">${escHtml(n.content)}</div>
+        </div>`).join('');
+      list.scrollTop = list.scrollHeight;
+    }
+  } catch (e) { section.style.display = 'none'; }
+}
+
+async function addNoteFromModal() {
+  const cardId = document.getElementById('card-id').value;
+  const input = document.getElementById('new-note-input');
+  const text = input.value.trim();
+  if (!cardId || !text) return;
+  try {
+    await fetch(`${API}/api/cards/${cardId}/notes`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: text, author: 'user' })
+    });
+    input.value = '';
+    await loadCardNotes(cardId);
+  } catch (e) { console.error('Add note failed:', e); }
+}
+
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') closeModal();
-  if (e.key === 'n' && !e.target.closest('.modal') && !e.target.closest('input,textarea,select')) { e.preventDefault(); closeModal(); openModal('New Card'); }
+  if (e.key === 'Escape') {
+    closeModal(); skipMoveNote();
+    const search = document.getElementById('search-input');
+    if (document.activeElement === search) { search.blur(); search.value = ''; searchQuery = ''; renderBoard(); }
+  }
+  const inInput = e.target.closest('input,textarea,select');
+  if (e.key === '/' && !inInput && !e.target.closest('.modal') && !e.target.closest('.note-modal')) { e.preventDefault(); document.getElementById('search-input').focus(); }
+  if (e.key === 'n' && !inInput && !e.target.closest('.modal') && !e.target.closest('.note-modal')) { e.preventDefault(); closeModal(); openModal('New Card'); }
 });
 
 function escHtml(str) { const d = document.createElement('div'); d.textContent = str; return d.innerHTML; }
@@ -624,7 +843,36 @@ function timeAgo(iso) {
   return `${Math.floor(hrs / 24)}d ago`;
 }
 
+// --- Theme Toggle ---
+function getTheme() { return localStorage.getItem('tack-theme') || 'dark'; }
+function setTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  localStorage.setItem('tack-theme', theme);
+  document.getElementById('theme-toggle').innerHTML = theme === 'dark' ? '&#9789;' : '&#9788;';
+}
+document.getElementById('theme-toggle').onclick = () => setTheme(getTheme() === 'dark' ? 'light' : 'dark');
+
+// --- Search/Filter ---
+let searchQuery = '';
+document.getElementById('search-input').addEventListener('input', (e) => {
+  searchQuery = e.target.value.toLowerCase().trim();
+  renderBoard();
+});
+
+function filterCards(cards) {
+  if (!searchQuery) return cards;
+  return cards.filter(c => {
+    const title = (c.title || '').toLowerCase();
+    const desc = (c.description || '').toLowerCase();
+    const assignee = (c.assignee || '').toLowerCase();
+    const tags = (c.tags || []).join(' ').toLowerCase();
+    return title.includes(searchQuery) || desc.includes(searchQuery) ||
+           assignee.includes(searchQuery) || tags.includes(searchQuery);
+  });
+}
+
 async function init() {
+  setTheme(getTheme());
   await fetchBoard(); await fetchActivity(); initSortable();
   setInterval(async () => { await fetchBoard(); await fetchActivity(); }, 10000);
 }

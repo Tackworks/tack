@@ -66,7 +66,7 @@ def init_db():
             )
         """)
         # Migrate: add columns to cards if missing
-        for col in ["claimed_by", "claimed_at", "claim_expires_at", "decision", "approval"]:
+        for col in ["claimed_by", "claimed_at", "claim_expires_at", "decision", "approval", "defer_until"]:
             try:
                 db.execute(f"ALTER TABLE cards ADD COLUMN {col} TEXT DEFAULT ''")
             except Exception:
@@ -90,7 +90,7 @@ def now_iso():
 
 # --- Models ---
 
-VALID_COLUMNS = ["inbox", "approved", "in_progress", "awaiting_decision", "awaiting_approval", "done", "blocked"]
+VALID_COLUMNS = ["inbox", "approved", "in_progress", "awaiting_decision", "awaiting_approval", "deferred", "done", "blocked"]
 VALID_PRIORITIES = ["low", "normal", "high", "critical"]
 
 class CardCreate(BaseModel):
@@ -190,11 +190,33 @@ def parse_card(row) -> dict:
 # --- API Routes ---
 
 DONE_ARCHIVE_DAYS = int(os.environ.get("TACK_DONE_ARCHIVE_DAYS", "7"))
+DEFER_DAYS = int(os.environ.get("TACK_DEFER_DAYS", "7"))
+
+
+def check_deferred_cards():
+    """Move deferred cards back to awaiting_decision if their defer_until has passed."""
+    now = now_iso()
+    with get_db() as db:
+        rows = db.execute(
+            "SELECT id, title, defer_until FROM cards WHERE column_name = 'deferred' AND defer_until != '' AND defer_until <= ?",
+            (now,)
+        ).fetchall()
+        for row in rows:
+            db.execute(
+                "UPDATE cards SET column_name = 'awaiting_decision', defer_until = '', updated_at = ? WHERE id = ?",
+                (now, row["id"])
+            )
+            db.execute(
+                "INSERT INTO activity (card_id, action, actor, details, timestamp) VALUES (?, ?, ?, ?, ?)",
+                (row["id"], "moved", "system", "deferred -> awaiting_decision (defer period expired)", now)
+            )
+
 
 @app.get("/api/board")
 def get_board(fields: Optional[str] = None):
     """Get all cards organized by column. Done cards older than DONE_ARCHIVE_DAYS are hidden.
     Use ?fields=id,title,column_name to return only specific fields (saves tokens)."""
+    check_deferred_cards()
     with get_db() as db:
         rows = db.execute(
             "SELECT * FROM cards ORDER BY position ASC, created_at ASC"
@@ -217,8 +239,13 @@ def get_board(fields: Optional[str] = None):
 
 
 @app.get("/api/cards")
-def list_cards(column: Optional[str] = None, assignee: Optional[str] = None, fields: Optional[str] = None):
+def list_cards(column: Optional[str] = None, assignee: Optional[str] = None,
+               q: Optional[str] = None, tag: Optional[str] = None,
+               priority: Optional[str] = None, fields: Optional[str] = None):
     """List cards with optional filters.
+    Use ?q=search+term to search title and description.
+    Use ?tag=tagname to filter by tag.
+    Use ?priority=high to filter by priority.
     Use ?fields=id,title,column_name to return only specific fields (saves tokens)."""
     query = "SELECT * FROM cards WHERE 1=1"
     params = []
@@ -228,6 +255,15 @@ def list_cards(column: Optional[str] = None, assignee: Optional[str] = None, fie
     if assignee:
         query += " AND assignee = ?"
         params.append(assignee)
+    if q:
+        query += " AND (title LIKE ? OR description LIKE ?)"
+        params.extend([f"%{q}%", f"%{q}%"])
+    if tag:
+        query += " AND tags LIKE ?"
+        params.append(f'%"{tag}"%')
+    if priority:
+        query += " AND priority = ?"
+        params.append(priority)
     query += " ORDER BY position ASC, created_at ASC"
 
     with get_db() as db:
@@ -351,14 +387,25 @@ def move_card(card_id: str, move: CardMove):
             ).fetchone()
             pos = row["next_pos"]
 
-        db.execute(
-            "UPDATE cards SET column_name = ?, position = ?, updated_at = ? WHERE id = ?",
-            (move.column_name, pos, ts, card_id)
-        )
+        # Auto-set defer_until when moving to deferred column
+        if move.column_name == "deferred":
+            defer_until = (datetime.now(timezone.utc) + timedelta(days=DEFER_DAYS)).isoformat()
+            db.execute(
+                "UPDATE cards SET column_name = ?, position = ?, updated_at = ?, defer_until = ? WHERE id = ?",
+                (move.column_name, pos, ts, defer_until, card_id)
+            )
+        else:
+            db.execute(
+                "UPDATE cards SET column_name = ?, position = ?, updated_at = ?, defer_until = '' WHERE id = ?",
+                (move.column_name, pos, ts, card_id)
+            )
         actor = move.actor or ""
+        details = f"{old_col} -> {move.column_name}"
+        if move.column_name == "deferred":
+            details += f" (returns in {DEFER_DAYS} days)"
         db.execute(
             "INSERT INTO activity (card_id, action, actor, details, timestamp) VALUES (?, ?, ?, ?, ?)",
-            (card_id, "moved", actor, f"{old_col} -> {move.column_name}", ts)
+            (card_id, "moved", actor, details, ts)
         )
 
     return {"status": "moved", "from": old_col, "to": move.column_name}
@@ -646,9 +693,14 @@ def list_pending_approvals():
     return [parse_card(row) for row in rows]
 
 
-@app.delete("/api/cards/{card_id}")
-def delete_card(card_id: str):
-    """Delete a card."""
+class CardDelete(BaseModel):
+    reason: str
+    actor: str = ""
+
+
+@app.post("/api/cards/{card_id}/delete")
+def delete_card_with_reason(card_id: str, body: CardDelete):
+    """Delete a card. Requires a reason (consolidation, no longer relevant, etc.)."""
     with get_db() as db:
         existing = db.execute("SELECT * FROM cards WHERE id = ?", (card_id,)).fetchone()
         if not existing:
@@ -656,9 +708,15 @@ def delete_card(card_id: str):
         db.execute("DELETE FROM cards WHERE id = ?", (card_id,))
         db.execute(
             "INSERT INTO activity (card_id, action, actor, details, timestamp) VALUES (?, ?, ?, ?, ?)",
-            (card_id, "deleted", "", existing["title"], now_iso())
+            (card_id, "deleted", body.actor, f"{existing['title']} — reason: {body.reason}", now_iso())
         )
-    return {"status": "deleted"}
+    return {"status": "deleted", "reason": body.reason}
+
+
+@app.delete("/api/cards/{card_id}")
+def delete_card(card_id: str):
+    """Delete a card (deprecated — use POST /api/cards/{card_id}/delete with reason)."""
+    raise HTTPException(400, "Deletion reason is required. Use POST /api/cards/{card_id}/delete with {\"reason\": \"...\"}")
 
 
 @app.post("/api/batch", status_code=200)
