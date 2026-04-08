@@ -371,6 +371,46 @@
     cursor: pointer; white-space: nowrap;
   }
 
+  .complete-modal-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 200;
+    justify-content: center; align-items: center;
+  }
+  .complete-modal-overlay.active { display: flex; }
+  .complete-modal {
+    background: var(--surface); border: 1px solid var(--done); border-radius: 8px;
+    padding: 16px 20px; width: 420px;
+  }
+  .complete-modal h3 { font-size: 13px; color: var(--done); margin-bottom: 4px; }
+  .complete-modal .complete-info { font-size: 11px; color: var(--text-dim); margin-bottom: 12px; }
+  .complete-modal textarea, .complete-modal input[type="text"] {
+    width: 100%; background: var(--bg); border: 1px solid var(--border); color: var(--text);
+    font-family: var(--font); font-size: 12px; padding: 8px 10px; border-radius: 4px;
+    resize: vertical;
+  }
+  .complete-modal textarea { min-height: 60px; }
+  .complete-modal .followup-section {
+    margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border);
+  }
+  .complete-modal .followup-check {
+    display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text); cursor: pointer;
+  }
+  .complete-modal .followup-fields { margin-top: 8px; display: none; }
+  .complete-modal .followup-fields.visible { display: block; }
+  .complete-modal .followup-fields label {
+    display: block; font-size: 10px; color: var(--text-dim); margin-bottom: 3px; margin-top: 8px;
+    text-transform: uppercase; letter-spacing: 1px;
+  }
+  .complete-modal .complete-buttons { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
+  .complete-modal .complete-buttons button {
+    padding: 5px 14px; border-radius: 4px; font-family: var(--font); font-size: 11px;
+    cursor: pointer; border: 1px solid var(--border);
+  }
+  .follows-badge {
+    font-size: 9px; color: var(--text-dim); background: var(--bg); border: 1px solid var(--border);
+    padding: 1px 5px; border-radius: 3px; margin-left: 4px; cursor: pointer;
+  }
+  .follows-badge:hover { color: var(--accent); border-color: var(--accent); }
+
   @media (max-width: 768px) { .column { min-width: 200px; } }
 </style>
 </head>
@@ -486,6 +526,29 @@
   </div>
 </div>
 
+<div class="complete-modal-overlay" id="complete-overlay">
+  <div class="complete-modal">
+    <h3>Complete Card</h3>
+    <div class="complete-info" id="complete-info"></div>
+    <textarea id="complete-note" placeholder="Completion notes (what was done, any context for the record)..."></textarea>
+    <div class="followup-section">
+      <label class="followup-check">
+        <input type="checkbox" id="followup-check" onchange="toggleFollowup()"> Create a follow-up card
+      </label>
+      <div class="followup-fields" id="followup-fields">
+        <label>Follow-up title</label>
+        <input type="text" id="followup-title" placeholder="Leave blank for auto-generated title">
+        <label>Follow-up description</label>
+        <textarea id="followup-desc" placeholder="What still needs to be done..." style="min-height:40px"></textarea>
+      </div>
+    </div>
+    <div class="complete-buttons">
+      <button class="btn-cancel" onclick="skipComplete()">Just Move</button>
+      <button class="btn-primary" style="background:var(--done);color:var(--bg);border-color:var(--done);" onclick="submitComplete()">Complete</button>
+    </div>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js"></script>
 <script>
 const API = '';
@@ -596,11 +659,12 @@ function renderCard(c) {
   }
 
   const cardClass = (hasDecision && !c.decision.decided) ? 'has-decision' : (hasApproval && c.approval.approved === null) ? 'has-approval' : '';
+  const followsBadge = c.follows_id ? `<span class="follows-badge" onclick="event.stopPropagation(); editCard('${c.follows_id}')" title="Follows ${c.follows_id}">follows</span>` : '';
 
   return `
     <div class="card ${cardClass}" data-id="${c.id}" ondblclick="editCard('${c.id}')">
       <div class="card-actions"><button onclick="editCard('${c.id}')" title="Edit">&#9998;</button></div>
-      <div class="card-title">${escHtml(c.title)}</div>
+      <div class="card-title">${escHtml(c.title)}${followsBadge}</div>
       ${desc}
       ${decisionHtml}
       ${approvalHtml}
@@ -621,6 +685,11 @@ function initSortable() {
         const newCol = evt.to.id.replace('list-', '');
         const oldCol = evt.from.id.replace('list-', '');
         if (!cardId) return;
+        // Show completion dialog for moves to done
+        if (newCol === 'done' && oldCol !== 'done') {
+          showCompleteModal(cardId, oldCol);
+          return;
+        }
         try {
           await fetch(`${API}/api/cards/${cardId}/move`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -782,6 +851,80 @@ async function saveMoveNote() {
   } catch (e) { console.error('Note save failed:', e); }
   skipMoveNote();
 }
+
+// --- Completion Dialog ---
+let pendingCompleteCardId = null;
+
+function showCompleteModal(cardId, fromCol) {
+  pendingCompleteCardId = cardId;
+  let cardTitle = cardId;
+  for (const col of COLUMNS) {
+    const found = (boardData[col] || []).find(c => c.id === cardId);
+    if (found) { cardTitle = found.title; break; }
+  }
+  const fromLabel = COLUMN_LABELS[fromCol] || fromCol;
+  document.getElementById('complete-info').textContent = `${cardTitle} — ${fromLabel} → Done`;
+  document.getElementById('complete-note').value = '';
+  document.getElementById('followup-check').checked = false;
+  document.getElementById('followup-title').value = '';
+  document.getElementById('followup-desc').value = '';
+  document.getElementById('followup-fields').classList.remove('visible');
+  document.getElementById('complete-overlay').classList.add('active');
+  document.getElementById('complete-note').focus();
+}
+
+function toggleFollowup() {
+  const checked = document.getElementById('followup-check').checked;
+  document.getElementById('followup-fields').classList.toggle('visible', checked);
+  if (checked) document.getElementById('followup-title').focus();
+}
+
+function skipComplete() {
+  // Just move without completion note
+  if (pendingCompleteCardId) {
+    fetch(`${API}/api/cards/${pendingCompleteCardId}/move`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ column_name: 'done' })
+    }).then(() => { fetchBoard(); fetchActivity(); });
+  }
+  pendingCompleteCardId = null;
+  document.getElementById('complete-overlay').classList.remove('active');
+}
+
+async function submitComplete() {
+  if (!pendingCompleteCardId) return;
+  const note = document.getElementById('complete-note').value.trim();
+  const followup = document.getElementById('followup-check').checked;
+  const followupTitle = document.getElementById('followup-title').value.trim();
+  const followupDesc = document.getElementById('followup-desc').value.trim();
+
+  try {
+    const res = await fetch(`${API}/api/cards/${pendingCompleteCardId}/complete`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        note, followup, actor: 'user',
+        followup_title: followupTitle,
+        followup_description: followupDesc
+      })
+    });
+    const data = await res.json();
+    await fetchBoard(); await fetchActivity();
+    if (data.followup_id) {
+      // Brief flash to show the new card was created
+      setTimeout(() => {
+        const el = document.querySelector(`[data-id="${data.followup_id}"]`);
+        if (el) { el.style.outline = '2px solid var(--accent)'; setTimeout(() => el.style.outline = '', 1500); }
+      }, 200);
+    }
+  } catch (e) { console.error('Complete failed:', e); }
+  pendingCompleteCardId = null;
+  document.getElementById('complete-overlay').classList.remove('active');
+}
+
+document.getElementById('complete-overlay').onclick = (e) => { if (e.target === e.currentTarget) skipComplete(); };
+document.getElementById('complete-note').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && e.ctrlKey) { e.preventDefault(); submitComplete(); }
+});
 
 // --- Notes in Card Modal ---
 async function loadCardNotes(cardId) {

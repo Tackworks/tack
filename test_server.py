@@ -1154,3 +1154,103 @@ class TestEdgeCases:
         assert card["claimed_by"] == ""
         assert card["claimed_at"] == ""
         assert card["claim_expires_at"] == ""
+
+
+class TestComplete:
+    def test_complete_moves_to_done(self, client):
+        card_id = _create_card(client, column_name="in_progress")["id"]
+        resp = client.post(f"/api/cards/{card_id}/complete", json={"note": "All done", "actor": "jim"})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "completed"
+        assert body["from"] == "in_progress"
+        card = client.get(f"/api/cards/{card_id}").json()
+        assert card["column_name"] == "done"
+
+    def test_complete_adds_note(self, client):
+        card_id = _create_card(client, column_name="in_progress")["id"]
+        client.post(f"/api/cards/{card_id}/complete", json={"note": "Finished the thing", "actor": "pam"})
+        notes = client.get(f"/api/cards/{card_id}/notes").json()
+        assert len(notes) == 1
+        assert "[COMPLETED]" in notes[0]["content"]
+        assert "Finished the thing" in notes[0]["content"]
+
+    def test_complete_without_note(self, client):
+        card_id = _create_card(client, column_name="inbox")["id"]
+        resp = client.post(f"/api/cards/{card_id}/complete", json={})
+        assert resp.status_code == 200
+        notes = client.get(f"/api/cards/{card_id}/notes").json()
+        assert len(notes) == 0
+
+    def test_complete_with_followup(self, client):
+        card_id = _create_card(client, title="Original Task", column_name="in_progress")["id"]
+        resp = client.post(f"/api/cards/{card_id}/complete", json={
+            "note": "Phase 1 done",
+            "actor": "jim",
+            "followup": True,
+            "followup_title": "Phase 2",
+            "followup_description": "Continue the work"
+        })
+        body = resp.json()
+        assert body["status"] == "completed"
+        assert "followup_id" in body
+
+        followup = client.get(f"/api/cards/{body['followup_id']}").json()
+        assert followup["column_name"] == "inbox"
+        assert followup["title"] == "Phase 2"
+        assert followup["follows_id"] == card_id
+        assert "Phase 1 done" in followup["description"]
+
+    def test_complete_followup_auto_title(self, client):
+        card_id = _create_card(client, title="Fix Login Bug", column_name="in_progress")["id"]
+        resp = client.post(f"/api/cards/{card_id}/complete", json={"followup": True, "actor": "pam"})
+        body = resp.json()
+        followup = client.get(f"/api/cards/{body['followup_id']}").json()
+        assert followup["title"] == "Follow-up: Fix Login Bug"
+
+    def test_complete_followup_inherits_fields(self, client):
+        card_id = _create_card(client, title="Deploy", assignee="jim", priority="high", tags=["ops"])["id"]
+        resp = client.post(f"/api/cards/{card_id}/complete", json={"followup": True})
+        followup = client.get(f"/api/cards/{resp.json()['followup_id']}").json()
+        assert followup["assignee"] == "jim"
+        assert followup["priority"] == "high"
+        assert followup["tags"] == ["ops"]
+
+    def test_complete_404(self, client):
+        resp = client.post("/api/cards/card-nonexist/complete", json={})
+        assert resp.status_code == 404
+
+    def test_complete_creates_activity(self, client):
+        card_id = _create_card(client)["id"]
+        client.post(f"/api/cards/{card_id}/complete", json={"actor": "dwight"})
+        activity = client.get("/api/activity").json()
+        completed = [a for a in activity if a["action"] == "completed"]
+        assert len(completed) == 1
+        assert completed[0]["actor"] == "dwight"
+
+
+class TestThread:
+    def test_thread_with_followup(self, client):
+        id1 = _create_card(client, title="Task 1")["id"]
+        resp = client.post(f"/api/cards/{id1}/complete", json={"followup": True})
+        id2 = resp.json()["followup_id"]
+        resp2 = client.post(f"/api/cards/{id2}/complete", json={"followup": True})
+        id3 = resp2.json()["followup_id"]
+
+        thread = client.get(f"/api/cards/{id2}/thread").json()
+        assert thread["thread_length"] == 3
+        assert len(thread["ancestors"]) == 1
+        assert thread["ancestors"][0]["id"] == id1
+        assert len(thread["descendants"]) == 1
+        assert thread["descendants"][0]["id"] == id3
+
+    def test_thread_no_chain(self, client):
+        card_id = _create_card(client)["id"]
+        thread = client.get(f"/api/cards/{card_id}/thread").json()
+        assert thread["thread_length"] == 1
+        assert thread["ancestors"] == []
+        assert thread["descendants"] == []
+
+    def test_thread_404(self, client):
+        resp = client.get("/api/cards/card-nonexist/thread")
+        assert resp.status_code == 404

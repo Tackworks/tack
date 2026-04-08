@@ -94,7 +94,7 @@ def init_db():
             )
         """)
         # Migrate: add columns to cards if missing (duplicate column errors are expected)
-        for col in ["claimed_by", "claimed_at", "claim_expires_at", "decision", "approval", "defer_until"]:
+        for col in ["claimed_by", "claimed_at", "claim_expires_at", "decision", "approval", "defer_until", "follows_id"]:
             try:
                 db.execute(f"ALTER TABLE cards ADD COLUMN {col} TEXT DEFAULT ''")
             except sqlite3.OperationalError:
@@ -180,6 +180,13 @@ class ApprovalSubmit(BaseModel):
     comment: str = ""
     actor: str = ""
     move_to: Optional[str] = None
+
+class CardComplete(BaseModel):
+    note: str = ""
+    actor: str = ""
+    followup: bool = False
+    followup_title: str = ""
+    followup_description: str = ""
 
 
 # --- Helpers ---
@@ -437,6 +444,69 @@ def move_card(card_id: str, move: CardMove):
         )
 
     return {"status": "moved", "from": old_col, "to": move.column_name}
+
+
+@app.post("/api/cards/{card_id}/complete")
+def complete_card(card_id: str, body: CardComplete):
+    """Move card to done with a completion note. Optionally create a followup card.
+    Use followup=true to spawn a new card in inbox that references this one."""
+    with get_db() as db:
+        existing = db.execute("SELECT * FROM cards WHERE id = ?", (card_id,)).fetchone()
+        if not existing:
+            raise HTTPException(404, "Card not found")
+
+        ts = now_iso()
+        old_col = existing["column_name"]
+
+        # Move to done
+        row = db.execute(
+            "SELECT COALESCE(MAX(position), -1) + 1 as next_pos FROM cards WHERE column_name = 'done'"
+        ).fetchone()
+        db.execute(
+            "UPDATE cards SET column_name = 'done', position = ?, updated_at = ?, defer_until = '' WHERE id = ?",
+            (row["next_pos"], ts, card_id)
+        )
+        db.execute(
+            "INSERT INTO activity (card_id, action, actor, details, timestamp) VALUES (?, ?, ?, ?, ?)",
+            (card_id, "completed", body.actor, f"{old_col} -> done", ts)
+        )
+
+        # Add completion note
+        if body.note:
+            db.execute(
+                "INSERT INTO notes (card_id, author, content, timestamp) VALUES (?, ?, ?, ?)",
+                (card_id, body.actor, f"[COMPLETED] {body.note}", ts)
+            )
+
+        # Create followup card if requested
+        followup_id = None
+        if body.followup:
+            followup_id = f"card-{uuid.uuid4().hex[:8]}"
+            followup_title = body.followup_title or f"Follow-up: {existing['title']}"
+            followup_desc = body.followup_description or ""
+            if body.note:
+                followup_desc = f"Previous card completed with note: {body.note}\n\n{followup_desc}".strip()
+
+            row2 = db.execute(
+                "SELECT COALESCE(MAX(position), -1) + 1 as next_pos FROM cards WHERE column_name = 'inbox'"
+            ).fetchone()
+            db.execute(
+                """INSERT INTO cards (id, title, description, column_name, assignee, priority,
+                   position, created_at, updated_at, created_by, tags, follows_id)
+                   VALUES (?, ?, ?, 'inbox', ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (followup_id, followup_title, followup_desc, existing["assignee"],
+                 existing["priority"], row2["next_pos"], ts, ts,
+                 body.actor, existing["tags"], card_id)
+            )
+            db.execute(
+                "INSERT INTO activity (card_id, action, actor, details, timestamp) VALUES (?, ?, ?, ?, ?)",
+                (followup_id, "created", body.actor, f"Follow-up from {card_id}: {existing['title']}", ts)
+            )
+
+    result = {"status": "completed", "from": old_col}
+    if followup_id:
+        result["followup_id"] = followup_id
+    return result
 
 
 @app.post("/api/cards/{card_id}/claim")
@@ -719,6 +789,43 @@ def list_pending_approvals():
         ).fetchall()
 
     return [parse_card(row) for row in rows]
+
+
+@app.get("/api/cards/{card_id}/thread")
+def get_card_thread(card_id: str):
+    """Get the followup chain for a card. Walks both directions:
+    ancestors (what this card follows) and descendants (what follows this card)."""
+    with get_db() as db:
+        existing = db.execute("SELECT * FROM cards WHERE id = ?", (card_id,)).fetchone()
+        if not existing:
+            raise HTTPException(404, "Card not found")
+
+        # Walk ancestors (follows_id chain backwards)
+        ancestors = []
+        current = dict(existing)
+        while current.get("follows_id"):
+            parent = db.execute("SELECT * FROM cards WHERE id = ?", (current["follows_id"],)).fetchone()
+            if not parent:
+                break
+            ancestors.insert(0, parse_card(parent))
+            current = dict(parent)
+
+        # Walk descendants (cards whose follows_id points to this card, then recurse)
+        descendants = []
+        queue = [card_id]
+        while queue:
+            parent_id = queue.pop(0)
+            children = db.execute("SELECT * FROM cards WHERE follows_id = ?", (parent_id,)).fetchall()
+            for child in children:
+                descendants.append(parse_card(child))
+                queue.append(child["id"])
+
+    return {
+        "card": parse_card(existing),
+        "ancestors": ancestors,
+        "descendants": descendants,
+        "thread_length": len(ancestors) + 1 + len(descendants)
+    }
 
 
 class CardDelete(BaseModel):

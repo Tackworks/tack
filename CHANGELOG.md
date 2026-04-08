@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.3.0] - 2026-04-08
+
+### Added
+- **Card completion workflow** — `POST /api/cards/{id}/complete` moves to Done with a structured completion note. Agents decide whether a followup is needed.
+- **Follow-up cards** — Complete with `followup: true` to auto-create a linked card in Inbox. Inherits assignee, priority, and tags from the parent. Shows "follows" badge on the card.
+- **Thread view** — `GET /api/cards/{id}/thread` walks the follow-up chain (ancestors and descendants) to show the full workflow history.
+- **Completion dialog in UI** — Dragging to Done shows a completion form with optional follow-up checkbox. Ctrl+Enter to submit.
+- **Optional API key auth** — Set `TACK_API_KEY` to require authentication on write operations.
+- **108-test suite** — pytest tests covering all API endpoints including the new completion/followup workflow.
+
+### Fixed
+- Narrowed exception handling in migration code (catches `sqlite3.OperationalError` only)
+- CI now runs the full test suite
+
+## [1.2.0] - 2026-04-08
+
+### Added
+- Optional API key auth, 97-test suite, CI improvements
+
 ## [1.1.0] - 2026-04-08
 
 ### Added
