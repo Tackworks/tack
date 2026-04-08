@@ -1,0 +1,634 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tack</title>
+<style>
+  :root {
+    --bg: #1a1a2e;
+    --surface: #16213e;
+    --card-bg: #0f3460;
+    --card-hover: #1a4a7a;
+    --border: #2a2a4a;
+    --text: #e0e0e0;
+    --text-dim: #8888aa;
+    --accent: #53c9b1;
+    --inbox: #5e60ce;
+    --progress: #4ea8de;
+    --decision: #e8a838;
+    --approval-pending: #4ea8de;
+    --done: #38b764;
+    --blocked: #e05555;
+    --critical: #ff4444;
+    --high: #ff8844;
+    --normal: #4ea8de;
+    --low: #8888aa;
+    --font: 'SF Mono', 'Cascadia Code', 'JetBrains Mono', 'Fira Code', monospace;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: var(--font);
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 20px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  header h1 { font-size: 16px; font-weight: 600; color: var(--accent); }
+  header h1 span { color: var(--text-dim); font-weight: 400; font-size: 12px; margin-left: 8px; }
+
+  .header-right { display: flex; align-items: center; gap: 12px; }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--done); display: inline-block; }
+  .status-text { font-size: 11px; color: var(--text-dim); }
+
+  #add-card-btn {
+    background: var(--accent); color: var(--bg); border: none; padding: 6px 14px;
+    border-radius: 4px; font-family: var(--font); font-size: 12px; font-weight: 600; cursor: pointer;
+  }
+  #add-card-btn:hover { opacity: 0.9; }
+
+  .board { display: flex; flex: 1; overflow-x: auto; gap: 0; padding: 0; }
+
+  .column {
+    flex: 1; min-width: 240px; max-width: 320px;
+    display: flex; flex-direction: column; border-right: 1px solid var(--border);
+  }
+  .column:last-child { border-right: none; }
+
+  .column-header {
+    padding: 12px 16px; font-size: 11px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 1.5px; display: flex; align-items: center; justify-content: space-between;
+    background: var(--surface); border-bottom: 2px solid var(--border); flex-shrink: 0;
+  }
+
+  .column-header .count {
+    background: var(--border); padding: 2px 7px; border-radius: 10px; font-size: 10px; font-weight: 600;
+  }
+
+  .column[data-column="inbox"] .column-header { border-bottom-color: var(--inbox); }
+  .column[data-column="approved"] .column-header { border-bottom-color: var(--done); }
+  .column[data-column="in_progress"] .column-header { border-bottom-color: var(--progress); }
+  .column[data-column="awaiting_decision"] .column-header { border-bottom-color: var(--decision); }
+  .column[data-column="awaiting_approval"] .column-header { border-bottom-color: var(--approval-pending); }
+  .column[data-column="done"] .column-header { border-bottom-color: var(--done); }
+  .column[data-column="blocked"] .column-header { border-bottom-color: var(--blocked); }
+
+  .card-list {
+    flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 6px;
+  }
+  .card-list::-webkit-scrollbar { width: 4px; }
+  .card-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  .card {
+    background: var(--card-bg); border: 1px solid var(--border); border-radius: 6px;
+    padding: 10px 12px; cursor: grab; transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
+    position: relative;
+  }
+  .card:hover { background: var(--card-hover); box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
+  .card:active { cursor: grabbing; transform: scale(0.98); }
+
+  .card-title { font-size: 13px; font-weight: 600; margin-bottom: 4px; line-height: 1.3; }
+  .card-desc { font-size: 11px; color: var(--text-dim); line-height: 1.4; margin-bottom: 6px; max-height: 40px; overflow: hidden; }
+  .card-meta { display: flex; align-items: center; justify-content: space-between; font-size: 10px; color: var(--text-dim); }
+  .card-assignee { background: var(--border); padding: 1px 6px; border-radius: 3px; font-weight: 600; }
+
+  .card-priority { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+  .card-priority.critical { background: var(--critical); }
+  .card-priority.high { background: var(--high); }
+  .card-priority.normal { background: var(--normal); }
+  .card-priority.low { background: var(--low); }
+
+  .card-time { font-size: 9px; color: var(--text-dim); }
+  .card-tags { display: flex; gap: 4px; margin-top: 4px; flex-wrap: wrap; }
+  .card-tag { font-size: 9px; padding: 1px 5px; border-radius: 3px; background: rgba(83, 201, 177, 0.15); color: var(--accent); }
+
+  .card-actions { position: absolute; top: 6px; right: 6px; opacity: 0; transition: opacity 0.15s; }
+  .card:hover .card-actions { opacity: 1; }
+  .card-actions button { background: none; border: none; color: var(--text-dim); cursor: pointer; font-size: 12px; padding: 2px 4px; }
+  .card-actions button:hover { color: var(--text); }
+
+  /* Decision cards */
+  .decision-box {
+    background: rgba(232, 168, 56, 0.1);
+    border: 1px solid var(--decision);
+    border-radius: 4px;
+    padding: 8px;
+    margin: 6px 0;
+  }
+
+  .decision-question {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--decision);
+    margin-bottom: 6px;
+    line-height: 1.3;
+  }
+
+  .decision-context {
+    font-size: 10px;
+    color: var(--text-dim);
+    margin-bottom: 6px;
+    line-height: 1.3;
+  }
+
+  .decision-options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .decision-btn {
+    background: rgba(232, 168, 56, 0.2);
+    border: 1px solid var(--decision);
+    color: var(--decision);
+    padding: 4px 10px;
+    border-radius: 3px;
+    font-family: var(--font);
+    font-size: 10px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+
+  .decision-btn:hover {
+    background: var(--decision);
+    color: var(--bg);
+  }
+
+  .decision-decided {
+    font-size: 10px;
+    color: var(--done);
+    font-weight: 600;
+  }
+
+  .card.has-decision {
+    border-color: var(--decision);
+    box-shadow: 0 0 8px rgba(232, 168, 56, 0.15);
+  }
+
+  /* Approval cards */
+  .approval-box {
+    background: rgba(78, 168, 222, 0.1);
+    border: 1px solid var(--approval-pending);
+    border-radius: 4px;
+    padding: 8px;
+    margin: 6px 0;
+  }
+
+  .approval-plan {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--approval-pending);
+    margin-bottom: 6px;
+    line-height: 1.3;
+  }
+
+  .approval-context {
+    font-size: 10px;
+    color: var(--text-dim);
+    margin-bottom: 6px;
+    line-height: 1.3;
+  }
+
+  .approval-actions {
+    display: flex;
+    gap: 4px;
+  }
+
+  .approve-btn {
+    background: rgba(56, 183, 100, 0.2);
+    border: 1px solid var(--done);
+    color: var(--done);
+    padding: 4px 12px;
+    border-radius: 3px;
+    font-family: var(--font);
+    font-size: 10px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+
+  .approve-btn:hover {
+    background: var(--done);
+    color: var(--bg);
+  }
+
+  .deny-btn {
+    background: rgba(224, 85, 85, 0.2);
+    border: 1px solid var(--blocked);
+    color: var(--blocked);
+    padding: 4px 12px;
+    border-radius: 3px;
+    font-family: var(--font);
+    font-size: 10px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+
+  .deny-btn:hover {
+    background: var(--blocked);
+    color: white;
+  }
+
+  .approval-decided {
+    font-size: 10px;
+    font-weight: 600;
+  }
+
+  .approval-decided.was-approved { color: var(--done); }
+  .approval-decided.was-denied { color: var(--blocked); }
+
+  .card.has-approval {
+    border-color: var(--approval-pending);
+    box-shadow: 0 0 8px rgba(78, 168, 222, 0.15);
+  }
+
+  .sortable-ghost { opacity: 0.4; background: var(--accent) !important; border-color: var(--accent) !important; }
+  .sortable-drag { box-shadow: 0 4px 16px rgba(0,0,0,0.5); }
+
+  .modal-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 100;
+    justify-content: center; align-items: center;
+  }
+  .modal-overlay.active { display: flex; }
+
+  .modal {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    padding: 20px; width: 420px; max-height: 80vh; overflow-y: auto;
+  }
+  .modal h2 { font-size: 14px; margin-bottom: 16px; color: var(--accent); }
+  .modal label { display: block; font-size: 11px; color: var(--text-dim); margin-bottom: 4px; margin-top: 10px; text-transform: uppercase; letter-spacing: 1px; }
+  .modal input, .modal textarea, .modal select {
+    width: 100%; background: var(--bg); border: 1px solid var(--border); color: var(--text);
+    font-family: var(--font); font-size: 13px; padding: 8px 10px; border-radius: 4px;
+  }
+  .modal textarea { resize: vertical; min-height: 60px; }
+
+  .modal-buttons { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+  .modal-buttons button { padding: 6px 16px; border-radius: 4px; font-family: var(--font); font-size: 12px; cursor: pointer; border: 1px solid var(--border); }
+  .btn-primary { background: var(--accent); color: var(--bg); border-color: var(--accent) !important; font-weight: 600; }
+  .btn-cancel { background: transparent; color: var(--text-dim); }
+  .btn-danger { background: var(--blocked); color: white; border-color: var(--blocked) !important; }
+
+  .activity-bar {
+    background: var(--surface); border-top: 1px solid var(--border); padding: 8px 20px;
+    font-size: 10px; color: var(--text-dim); flex-shrink: 0; display: flex; gap: 20px;
+    overflow-x: auto; white-space: nowrap;
+  }
+  .activity-item .actor { color: var(--accent); font-weight: 600; }
+  .empty-state { text-align: center; padding: 30px 10px; color: var(--text-dim); font-size: 11px; }
+
+  @media (max-width: 768px) { .column { min-width: 200px; } }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>TACK <span>Task Board</span></h1>
+  <div class="header-right">
+    <span class="status-dot"></span>
+    <span class="status-text" id="status-text">connected</span>
+    <button id="add-card-btn">+ New Card</button>
+  </div>
+</header>
+
+<div class="board" id="board">
+  <div class="column" data-column="inbox">
+    <div class="column-header">Inbox <span class="count" id="count-inbox">0</span></div>
+    <div class="card-list" id="list-inbox"></div>
+  </div>
+  <div class="column" data-column="approved">
+    <div class="column-header">Approved <span class="count" id="count-approved">0</span></div>
+    <div class="card-list" id="list-approved"></div>
+  </div>
+  <div class="column" data-column="in_progress">
+    <div class="column-header">In Progress <span class="count" id="count-in_progress">0</span></div>
+    <div class="card-list" id="list-in_progress"></div>
+  </div>
+  <div class="column" data-column="awaiting_decision">
+    <div class="column-header">Awaiting Decision <span class="count" id="count-awaiting_decision">0</span></div>
+    <div class="card-list" id="list-awaiting_decision"></div>
+  </div>
+  <div class="column" data-column="awaiting_approval">
+    <div class="column-header">Awaiting Approval <span class="count" id="count-awaiting_approval">0</span></div>
+    <div class="card-list" id="list-awaiting_approval"></div>
+  </div>
+  <div class="column" data-column="blocked">
+    <div class="column-header">Blocked <span class="count" id="count-blocked">0</span></div>
+    <div class="card-list" id="list-blocked"></div>
+  </div>
+  <div class="column" data-column="done">
+    <div class="column-header">Done <span class="count" id="count-done">0</span></div>
+    <div class="card-list" id="list-done"></div>
+  </div>
+</div>
+
+<div class="activity-bar" id="activity-bar">
+  <span class="activity-item">Loading activity...</span>
+</div>
+
+<div class="modal-overlay" id="modal-overlay">
+  <div class="modal">
+    <h2 id="modal-title">New Card</h2>
+    <input type="hidden" id="card-id">
+    <label>Title</label>
+    <input type="text" id="card-title" placeholder="What needs to be done?">
+    <label>Description</label>
+    <textarea id="card-description" placeholder="Details, context, acceptance criteria..."></textarea>
+    <label>Column</label>
+    <select id="card-column">
+      <option value="inbox">Inbox</option>
+      <option value="approved">Approved</option>
+      <option value="in_progress">In Progress</option>
+      <option value="awaiting_decision">Awaiting Decision</option>
+      <option value="awaiting_approval">Awaiting Approval</option>
+      <option value="blocked">Blocked</option>
+      <option value="done">Done</option>
+    </select>
+    <label>Assignee</label>
+    <input type="text" id="card-assignee" placeholder="Who's responsible?">
+    <label>Priority</label>
+    <select id="card-priority">
+      <option value="normal">Normal</option>
+      <option value="low">Low</option>
+      <option value="high">High</option>
+      <option value="critical">Critical</option>
+    </select>
+    <label>Tags (comma-separated)</label>
+    <input type="text" id="card-tags" placeholder="feature, bugfix, research...">
+    <div class="modal-buttons">
+      <button class="btn-cancel" onclick="closeModal()">Cancel</button>
+      <button class="btn-danger" id="delete-btn" onclick="deleteCard()" style="display:none">Delete</button>
+      <button class="btn-primary" onclick="saveCard()">Save</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js"></script>
+<script>
+const API = '';
+const COLUMNS = ['inbox', 'approved', 'in_progress', 'awaiting_decision', 'awaiting_approval', 'blocked', 'done'];
+let boardData = {};
+
+async function fetchBoard() {
+  try {
+    const res = await fetch(`${API}/api/board`);
+    boardData = await res.json();
+    renderBoard();
+    document.getElementById('status-text').textContent = 'connected';
+    document.querySelector('.status-dot').style.background = 'var(--done)';
+  } catch (e) {
+    document.getElementById('status-text').textContent = 'disconnected';
+    document.querySelector('.status-dot').style.background = 'var(--blocked)';
+  }
+}
+
+async function fetchActivity() {
+  try {
+    const res = await fetch(`${API}/api/activity?limit=10`);
+    const items = await res.json();
+    const bar = document.getElementById('activity-bar');
+    if (items.length === 0) { bar.innerHTML = '<span class="activity-item">No activity yet</span>'; return; }
+    bar.innerHTML = items.map(a => {
+      const ago = timeAgo(a.timestamp);
+      const actor = a.actor || 'system';
+      return `<span class="activity-item"><span class="actor">${actor}</span> ${a.action} ${ago}</span>`;
+    }).join('');
+  } catch (e) {}
+}
+
+function renderBoard() {
+  for (const col of COLUMNS) {
+    const list = document.getElementById(`list-${col}`);
+    const cards = boardData[col] || [];
+    document.getElementById(`count-${col}`).textContent = cards.length;
+    if (cards.length === 0) { list.innerHTML = '<div class="empty-state">No cards</div>'; continue; }
+    list.innerHTML = cards.map(c => renderCard(c)).join('');
+  }
+}
+
+function renderCard(c) {
+  const desc = c.description ? `<div class="card-desc">${escHtml(c.description)}</div>` : '';
+  const assignee = c.assignee ? `<span class="card-assignee">${escHtml(c.assignee)}</span>` : '';
+  const tags = (c.tags || []).map(t => `<span class="card-tag">${escHtml(t)}</span>`).join('');
+  const tagsHtml = tags ? `<div class="card-tags">${tags}</div>` : '';
+  const ago = timeAgo(c.updated_at || c.created_at);
+
+  let decisionHtml = '';
+  let hasDecision = false;
+  if (c.decision && typeof c.decision === 'object' && c.decision.question) {
+    hasDecision = true;
+    if (c.decision.decided) {
+      const chosen = c.decision.options.find(o => o.key === c.decision.decided);
+      decisionHtml = `<div class="decision-box">
+        <div class="decision-decided">Decided: ${escHtml(chosen ? chosen.label : c.decision.decided)}</div>
+        <div class="decision-context">by ${escHtml(c.decision.decided_by || '?')} ${timeAgo(c.decision.decided_at)}</div>
+      </div>`;
+    } else {
+      const ctx = c.decision.context ? `<div class="decision-context">${escHtml(c.decision.context)}</div>` : '';
+      const opts = c.decision.options.map(o =>
+        `<button class="decision-btn" onclick="event.stopPropagation(); submitDecision('${c.id}', '${o.key}')" title="${escHtml(o.description || o.label)}">${escHtml(o.label)}</button>`
+      ).join('');
+      decisionHtml = `<div class="decision-box">
+        <div class="decision-question">${escHtml(c.decision.question)}</div>
+        ${ctx}
+        <div class="decision-options">${opts}</div>
+      </div>`;
+    }
+  }
+
+  let approvalHtml = '';
+  let hasApproval = false;
+  if (c.approval && typeof c.approval === 'object' && c.approval.plan) {
+    hasApproval = true;
+    if (c.approval.approved !== null && c.approval.approved !== undefined) {
+      const status = c.approval.approved ? 'Approved' : 'Denied';
+      const cls = c.approval.approved ? 'was-approved' : 'was-denied';
+      const comment = c.approval.comment ? `<div class="approval-context">"${escHtml(c.approval.comment)}"</div>` : '';
+      approvalHtml = `<div class="approval-box">
+        <div class="approval-decided ${cls}">${status} by ${escHtml(c.approval.approved_by || '?')} ${timeAgo(c.approval.approved_at)}</div>
+        ${comment}
+      </div>`;
+    } else {
+      const ctx = c.approval.context ? `<div class="approval-context">${escHtml(c.approval.context)}</div>` : '';
+      approvalHtml = `<div class="approval-box">
+        <div class="approval-plan">${escHtml(c.approval.plan)}</div>
+        ${ctx}
+        <div class="approval-actions">
+          <button class="approve-btn" onclick="event.stopPropagation(); submitApproval('${c.id}', true)">Approve</button>
+          <button class="deny-btn" onclick="event.stopPropagation(); submitApproval('${c.id}', false)">Deny</button>
+        </div>
+      </div>`;
+    }
+  }
+
+  const cardClass = (hasDecision && !c.decision.decided) ? 'has-decision' : (hasApproval && c.approval.approved === null) ? 'has-approval' : '';
+
+  return `
+    <div class="card ${cardClass}" data-id="${c.id}" ondblclick="editCard('${c.id}')">
+      <div class="card-actions"><button onclick="editCard('${c.id}')" title="Edit">&#9998;</button></div>
+      <div class="card-title">${escHtml(c.title)}</div>
+      ${desc}
+      ${decisionHtml}
+      ${approvalHtml}
+      <div class="card-meta">
+        <div><span class="card-priority ${c.priority}"></span> ${assignee}</div>
+        <span class="card-time">${ago}</span>
+      </div>
+      ${tagsHtml}
+    </div>`;
+}
+
+function initSortable() {
+  for (const col of COLUMNS) {
+    new Sortable(document.getElementById(`list-${col}`), {
+      group: 'board', animation: 150, ghostClass: 'sortable-ghost', dragClass: 'sortable-drag',
+      onEnd: async function(evt) {
+        const cardId = evt.item.dataset.id;
+        const newCol = evt.to.id.replace('list-', '');
+        if (!cardId) return;
+        try {
+          await fetch(`${API}/api/cards/${cardId}/move`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ column_name: newCol, position: evt.newIndex })
+          });
+          await fetchBoard(); await fetchActivity();
+        } catch (e) { await fetchBoard(); }
+      }
+    });
+  }
+}
+
+function openModal(title = 'New Card') {
+  document.getElementById('modal-title').textContent = title;
+  document.getElementById('modal-overlay').classList.add('active');
+  document.getElementById('card-title').focus();
+}
+
+function closeModal() {
+  document.getElementById('modal-overlay').classList.remove('active');
+  document.getElementById('card-id').value = '';
+  document.getElementById('card-title').value = '';
+  document.getElementById('card-description').value = '';
+  document.getElementById('card-column').value = 'inbox';
+  document.getElementById('card-assignee').value = '';
+  document.getElementById('card-priority').value = 'normal';
+  document.getElementById('card-tags').value = '';
+  document.getElementById('delete-btn').style.display = 'none';
+}
+
+document.getElementById('add-card-btn').onclick = () => { closeModal(); openModal('New Card'); };
+document.getElementById('modal-overlay').onclick = (e) => { if (e.target === e.currentTarget) closeModal(); };
+
+async function editCard(cardId) {
+  try {
+    const res = await fetch(`${API}/api/cards/${cardId}`);
+    const card = await res.json();
+    document.getElementById('card-id').value = card.id;
+    document.getElementById('card-title').value = card.title;
+    document.getElementById('card-description').value = card.description || '';
+    document.getElementById('card-column').value = card.column_name;
+    document.getElementById('card-assignee').value = card.assignee || '';
+    document.getElementById('card-priority').value = card.priority || 'normal';
+    document.getElementById('card-tags').value = (card.tags || []).join(', ');
+    document.getElementById('delete-btn').style.display = 'inline-block';
+    openModal('Edit Card');
+  } catch (e) {}
+}
+
+async function saveCard() {
+  const id = document.getElementById('card-id').value;
+  const data = {
+    title: document.getElementById('card-title').value.trim(),
+    description: document.getElementById('card-description').value.trim(),
+    column_name: document.getElementById('card-column').value,
+    assignee: document.getElementById('card-assignee').value.trim(),
+    priority: document.getElementById('card-priority').value,
+    tags: document.getElementById('card-tags').value.split(',').map(t => t.trim()).filter(Boolean)
+  };
+  if (!data.title) { alert('Title is required'); return; }
+  try {
+    if (id) {
+      await fetch(`${API}/api/cards/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+    } else {
+      await fetch(`${API}/api/cards`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+    }
+    closeModal(); await fetchBoard(); await fetchActivity();
+  } catch (e) {}
+}
+
+async function deleteCard() {
+  const id = document.getElementById('card-id').value;
+  if (!id || !confirm('Delete this card?')) return;
+  try { await fetch(`${API}/api/cards/${id}`, { method: 'DELETE' }); closeModal(); await fetchBoard(); await fetchActivity(); } catch (e) {}
+}
+
+async function submitDecision(cardId, choice) {
+  try {
+    const res = await fetch(`${API}/api/cards/${cardId}/decide`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ choice: choice, actor: 'user', move_to: 'in_progress' })
+    });
+    if (!res.ok) { const err = await res.json(); alert(`Decision failed: ${err.detail || 'Unknown error'}`); return; }
+    await fetchBoard();
+    await fetchActivity();
+  } catch (e) { console.error('Decision failed:', e); }
+}
+
+async function submitApproval(cardId, approved) {
+  const comment = approved ? '' : (prompt('Reason for denial (optional):') || '');
+  if (!approved && comment === null) return;
+  try {
+    const res = await fetch(`${API}/api/cards/${cardId}/approve`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ approved: approved, actor: 'user', comment: comment || '' })
+    });
+    if (!res.ok) { const err = await res.json(); alert(`Approval failed: ${err.detail || 'Unknown error'}`); return; }
+    await fetchBoard();
+    await fetchActivity();
+  } catch (e) { console.error('Approval failed:', e); }
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeModal();
+  if (e.key === 'n' && !e.target.closest('.modal') && !e.target.closest('input,textarea,select')) { e.preventDefault(); closeModal(); openModal('New Card'); }
+});
+
+function escHtml(str) { const d = document.createElement('div'); d.textContent = str; return d.innerHTML; }
+
+function timeAgo(iso) {
+  if (!iso) return '';
+  const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
+}
+
+async function init() {
+  await fetchBoard(); await fetchActivity(); initSortable();
+  setInterval(async () => { await fetchBoard(); await fetchActivity(); }, 10000);
+}
+init();
+</script>
+</body>
+</html>
