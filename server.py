@@ -8,6 +8,7 @@ import sqlite3
 import json
 import uuid
 import os
+import hmac
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from contextlib import contextmanager
@@ -15,7 +16,7 @@ from contextlib import contextmanager
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
@@ -47,7 +48,7 @@ class ApiKeyMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
         # Check API key for write operations
         key = request.headers.get("x-api-key") or request.headers.get("authorization", "").removeprefix("Bearer ")
-        if key != API_KEY:
+        if not hmac.compare_digest(key, API_KEY):
             return JSONResponse(status_code=401, content={"detail": "Invalid or missing API key"})
         return await call_next(request)
 
@@ -104,6 +105,8 @@ def init_db():
 @contextmanager
 def get_db():
     conn = sqlite3.connect(str(DB_PATH))
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.row_factory = sqlite3.Row
     try:
         yield conn
@@ -122,71 +125,88 @@ VALID_COLUMNS = ["inbox", "approved", "in_progress", "awaiting_decision", "await
 VALID_PRIORITIES = ["low", "normal", "high", "critical"]
 
 class CardCreate(BaseModel):
-    title: str
-    description: str = ""
+    title: str = Field(max_length=500)
+    description: str = Field(default="", max_length=10000)
     column_name: str = "inbox"
-    assignee: str = ""
-    priority: str = "normal"
-    created_by: str = ""
-    tags: list[str] = []
+    assignee: str = Field(default="", max_length=200)
+    priority: str = Field(default="normal", max_length=50)
+    created_by: str = Field(default="", max_length=200)
+    tags: list[str] = Field(default=[], max_length=50)
+
+    @field_validator("tags")
+    @classmethod
+    def validate_tag_lengths(cls, v):
+        for tag in v:
+            if len(tag) > 100:
+                raise ValueError("Each tag must be 100 characters or fewer")
+        return v
 
 class CardUpdate(BaseModel):
-    title: Optional[str] = None
-    description: Optional[str] = None
+    title: Optional[str] = Field(default=None, max_length=500)
+    description: Optional[str] = Field(default=None, max_length=10000)
     column_name: Optional[str] = None
-    assignee: Optional[str] = None
-    priority: Optional[str] = None
-    tags: Optional[list[str]] = None
-    actor: Optional[str] = None
+    assignee: Optional[str] = Field(default=None, max_length=200)
+    priority: Optional[str] = Field(default=None, max_length=50)
+    tags: Optional[list[str]] = Field(default=None, max_length=50)
+    actor: Optional[str] = Field(default=None, max_length=200)
+
+    @field_validator("tags")
+    @classmethod
+    def validate_tag_lengths(cls, v):
+        if v is not None:
+            for tag in v:
+                if len(tag) > 100:
+                    raise ValueError("Each tag must be 100 characters or fewer")
+        return v
 
 class CardMove(BaseModel):
     column_name: str
     position: Optional[int] = None
-    actor: Optional[str] = None
+    actor: Optional[str] = Field(default=None, max_length=200)
 
 class ClaimRequest(BaseModel):
-    agent: str
+    agent: str = Field(max_length=200)
     ttl_seconds: int = 300
 
 class NoteCreate(BaseModel):
-    author: str = ""
-    content: str
+    author: str = Field(default="", max_length=200)
+    content: str = Field(max_length=10000)
 
 class DecisionOption(BaseModel):
-    key: str
-    label: str
-    description: str = ""
+    key: str = Field(max_length=100)
+    label: str = Field(max_length=500)
+    description: str = Field(default="", max_length=2000)
 
 class DecisionRequest(BaseModel):
-    question: str
+    question: str = Field(max_length=2000)
     options: list[DecisionOption]
-    context: str = ""
+    context: str = Field(default="", max_length=10000)
     deadline: Optional[str] = None
-    actor: Optional[str] = None
+    actor: Optional[str] = Field(default=None, max_length=200)
 
 class DecisionSubmit(BaseModel):
-    choice: str
-    actor: str = ""
-    note: str = ""
+    choice: str = Field(max_length=100)
+    actor: str = Field(default="", max_length=200)
+    note: str = Field(default="", max_length=10000)
     move_to: str = "in_progress"
 
 class ApprovalRequest(BaseModel):
-    plan: str
-    context: str = ""
-    actor: Optional[str] = None
+    plan: str = Field(max_length=10000)
+    context: str = Field(default="", max_length=10000)
+    actor: Optional[str] = Field(default=None, max_length=200)
 
 class ApprovalSubmit(BaseModel):
     approved: bool
-    comment: str = ""
-    actor: str = ""
+    comment: str = Field(default="", max_length=10000)
+    actor: str = Field(default="", max_length=200)
     move_to: Optional[str] = None
 
 class CardComplete(BaseModel):
-    note: str = ""
-    actor: str = ""
+    note: str = Field(default="", max_length=10000)
+    actor: str = Field(default="", max_length=200)
     followup: bool = False
-    followup_title: str = ""
-    followup_description: str = ""
+    followup_title: str = Field(default="", max_length=500)
+    followup_description: str = Field(default="", max_length=10000)
 
 
 # --- Helpers ---
@@ -829,8 +849,8 @@ def get_card_thread(card_id: str):
 
 
 class CardDelete(BaseModel):
-    reason: str
-    actor: str = ""
+    reason: str = Field(max_length=2000)
+    actor: str = Field(default="", max_length=200)
 
 
 @app.post("/api/cards/{card_id}/delete")
@@ -857,33 +877,38 @@ def delete_card(card_id: str):
 @app.post("/api/batch", status_code=200)
 def batch_operations(ops: list[dict]):
     """Execute multiple operations in one call. Each op: {action, ...params}.
-    Actions: create, move, update, claim, release, note, decide."""
+    Actions: create, move, update, claim, release, note, decide.
+    Expected errors (bad input, missing cards, conflicts) are captured per-operation.
+    Unexpected errors (disk, memory, etc.) propagate and return a proper 500."""
+    if len(ops) > 100:
+        raise HTTPException(400, "Batch size exceeds maximum of 100 operations")
     results = []
     for op in ops:
-        action = op.pop("action", None)
+        action = op.get("action")
+        params = {k: v for k, v in op.items() if k != "action"}
         try:
             if action == "create":
-                results.append(create_card(CardCreate(**op)))
+                results.append(create_card(CardCreate(**params)))
             elif action == "move":
-                card_id = op.pop("card_id")
-                results.append(move_card(card_id, CardMove(**op)))
+                card_id = params.pop("card_id")
+                results.append(move_card(card_id, CardMove(**params)))
             elif action == "update":
-                card_id = op.pop("card_id")
-                results.append(update_card(card_id, CardUpdate(**op)))
+                card_id = params.pop("card_id")
+                results.append(update_card(card_id, CardUpdate(**params)))
             elif action == "claim":
-                card_id = op.pop("card_id")
-                results.append(claim_card(card_id, ClaimRequest(**op)))
+                card_id = params.pop("card_id")
+                results.append(claim_card(card_id, ClaimRequest(**params)))
             elif action == "release":
-                card_id = op.pop("card_id")
-                results.append(release_card(card_id, op.get("agent")))
+                card_id = params.pop("card_id")
+                results.append(release_card(card_id, params.get("agent")))
             elif action == "note":
-                card_id = op.pop("card_id")
-                results.append(add_note(card_id, NoteCreate(**op)))
+                card_id = params.pop("card_id")
+                results.append(add_note(card_id, NoteCreate(**params)))
             else:
                 results.append({"error": f"Unknown action: {action}"})
         except HTTPException as e:
             results.append({"error": str(e.detail), "status_code": e.status_code})
-        except Exception as e:
+        except (ValueError, KeyError, sqlite3.IntegrityError) as e:
             results.append({"error": str(e)})
     return {"results": results, "count": len(results)}
 
@@ -891,6 +916,7 @@ def batch_operations(ops: list[dict]):
 @app.get("/api/activity")
 def get_activity(limit: int = 50):
     """Get recent activity log."""
+    limit = min(limit, 1000)
     with get_db() as db:
         rows = db.execute(
             "SELECT * FROM activity ORDER BY timestamp DESC LIMIT ?", (limit,)
@@ -902,6 +928,7 @@ def get_activity(limit: int = 50):
 def get_changes(since: Optional[str] = None, limit: int = 20):
     """Get changes since a timestamp. Designed for agent polling.
     Returns activity entries + the affected card data."""
+    limit = min(limit, 1000)
     with get_db() as db:
         if since:
             rows = db.execute(

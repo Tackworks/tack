@@ -1254,3 +1254,102 @@ class TestThread:
     def test_thread_404(self, client):
         resp = client.get("/api/cards/card-nonexist/thread")
         assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Authentication tests
+# ---------------------------------------------------------------------------
+
+class TestAuth:
+    """Tests for API key authentication middleware.
+
+    These tests set TACK_API_KEY and reload the server module so the middleware
+    picks up the key. Each test method gets its own fresh DB via the autouse
+    fresh_db fixture, but we also need our own TestClient wired to a server
+    whose API_KEY is set.
+    """
+
+    TEST_KEY = "test-secret-key-12345"
+
+    @pytest.fixture(autouse=True)
+    def auth_setup(self, tmp_path):
+        """Set TACK_API_KEY, reload server, yield a client, then clean up."""
+        import importlib
+        import server
+
+        # Save originals
+        orig_key = os.environ.get("TACK_API_KEY")
+        orig_db = server.DB_PATH
+
+        # Set the API key and a fresh DB, then reload so module-level
+        # API_KEY = os.environ.get(...) picks it up.
+        os.environ["TACK_API_KEY"] = self.TEST_KEY
+        db_file = tmp_path / "auth_test.db"
+
+        importlib.reload(server)
+        server.DB_PATH = db_file
+        server.init_db()
+
+        with TestClient(server.app, raise_server_exceptions=False) as c:
+            self.client = c
+            yield
+
+        # Restore environment
+        if orig_key is None:
+            os.environ.pop("TACK_API_KEY", None)
+        else:
+            os.environ["TACK_API_KEY"] = orig_key
+
+        # Reload again so other test classes get the original (no-key) server
+        importlib.reload(server)
+        server.DB_PATH = orig_db
+
+    def test_auth_blocks_write_without_key(self):
+        """POST /api/cards with no key should return 401."""
+        resp = self.client.post("/api/cards", json={
+            "title": "Should be blocked",
+        })
+        assert resp.status_code == 401
+        assert "API key" in resp.json()["detail"]
+
+    def test_auth_allows_write_with_key(self):
+        """POST /api/cards with correct X-API-Key header should return 201."""
+        resp = self.client.post("/api/cards", json={
+            "title": "Authorized card",
+        }, headers={"X-API-Key": self.TEST_KEY})
+        assert resp.status_code == 201
+        assert resp.json()["status"] == "created"
+
+    def test_auth_bearer_header(self):
+        """Authorization: Bearer header should work."""
+        resp = self.client.post("/api/cards", json={
+            "title": "Bearer card",
+        }, headers={"Authorization": f"Bearer {self.TEST_KEY}"})
+        assert resp.status_code == 201
+        assert resp.json()["status"] == "created"
+
+    def test_auth_wrong_key(self):
+        """Wrong key should return 401."""
+        resp = self.client.post("/api/cards", json={
+            "title": "Wrong key card",
+        }, headers={"X-API-Key": "wrong-key"})
+        assert resp.status_code == 401
+
+    def test_auth_reads_work_without_key(self):
+        """GET /api/board and GET /api/cards should work without key."""
+        resp_board = self.client.get("/api/board")
+        assert resp_board.status_code == 200
+
+        resp_cards = self.client.get("/api/cards")
+        assert resp_cards.status_code == 200
+
+    def test_auth_health_exempt(self):
+        """GET /health should work without key."""
+        resp = self.client.get("/health")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "ok"
+
+    def test_auth_static_exempt(self):
+        """GET / should work without key (serves the HTML page)."""
+        resp = self.client.get("/")
+        assert resp.status_code == 200
