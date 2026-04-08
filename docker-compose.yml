@@ -1,0 +1,11 @@
+services:
+  tack:
+    build: .
+    ports:
+      - "8795:8795"
+    volumes:
+      - tack-data:/data
+    restart: unless-stopped
+
+volumes:
+  tack-data:

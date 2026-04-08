@@ -19,6 +19,19 @@ python server.py
 
 Open `http://localhost:8795` in your browser.
 
+### Docker
+
+```bash
+docker compose up -d
+```
+
+Or build manually:
+
+```bash
+docker build -t tack .
+docker run -d -p 8795:8795 -v tack-data:/data tack
+```
+
 ## For AI Agents
 
 Give your agent the contents of [TOOL.md](TOOL.md) as context. It contains:
