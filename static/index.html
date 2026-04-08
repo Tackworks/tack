@@ -47,12 +47,43 @@
     background: var(--surface);
     border-bottom: 1px solid var(--border);
     flex-shrink: 0;
+    gap: 12px;
   }
 
   header h1 { font-size: 16px; font-weight: 600; color: var(--accent); }
   header h1 span { color: var(--text-dim); font-weight: 400; font-size: 12px; margin-left: 8px; }
 
-  .header-right { display: flex; align-items: center; gap: 12px; }
+  .header.center {flex: 1; max max-width: 320px;}
+
+  #search-input {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 12px;
+    padding: 6px 10px 6px 30px;
+    border-radius: 4px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  #search-input::placeholder { color: var(--text-dim); }
+  #search-input:focus { border-color: var(--accent); }
+
+  .search-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+  }
+  .search-wrap::before { 
+    content: '⌕';
+    position: absolute;
+    left: 9px;
+    color: var(--text-dim);
+    font-size: 13px;
+    pointer-events: none;
+  }
+  .header-right { display: flex; align-items: center; gap: 12px; flex-shrink : 0; }
   .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--done); display: inline-block; }
   .status-text { font-size: 11px; color: var(--text-dim); }
 
@@ -101,7 +132,7 @@
   }
   .card:hover { background: var(--card-hover); box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
   .card:active { cursor: grabbing; transform: scale(0.98); }
-
+  .card.filter-hidden { display: none; }
   .card-title { font-size: 13px; font-weight: 600; margin-bottom: 4px; line-height: 1.3; }
   .card-desc { font-size: 11px; color: var(--text-dim); line-height: 1.4; margin-bottom: 6px; max-height: 40px; overflow: hidden; }
   .card-meta { display: flex; align-items: center; justify-content: space-between; font-size: 10px; color: var(--text-dim); }
@@ -293,14 +324,32 @@
   }
   .activity-item .actor { color: var(--accent); font-weight: 600; }
   .empty-state { text-align: center; padding: 30px 10px; color: var(--text-dim); font-size: 11px; }
+  .search-count {
+    position: absolute;
+    right: 9px;
+    font-size: 10px;
+    color: var(--text-dim);
+    pointer-events: none;
+  }
 
-  @media (max-width: 768px) { .column { min-width: 200px; } }
+  .search-count.has-query { color: var(--accent);}
+
+  @media (max-width: 768px) {
+    .column { min-width: 200px; }
+    .header-center { max-width: 180px; }
+  }
 </style>
 </head>
 <body>
 
 <header>
   <h1>TACK <span>Task Board</span></h1>
+  <div class="header-center">
+    <div class="search-wrap">
+      <input type="text" id="search-input" placeholder="Search title, desc, assignee, tags..." autocomplete="off">
+      <span class="search-count" id="search-count"></span>
+    </div>
+  </div>
   <div class="header-right">
     <span class="status-dot"></span>
     <span class="status-text" id="status-text">connected</span>
@@ -385,12 +434,14 @@
 const API = '';
 const COLUMNS = ['inbox', 'approved', 'in_progress', 'awaiting_decision', 'awaiting_approval', 'blocked', 'done'];
 let boardData = {};
+let searchQuery = '';
 
 async function fetchBoard() {
   try {
     const res = await fetch(`${API}/api/board`);
     boardData = await res.json();
     renderBoard();
+    applySearch();
     document.getElementById('status-text').textContent = 'connected';
     document.querySelector('.status-dot').style.background = 'var(--done)';
   } catch (e) {
@@ -495,10 +546,92 @@ function renderCard(c) {
     </div>`;
 }
 
+function applySearch() {
+  const q = searchQuery.toLowerCase().trim();
+  const allCards = document.querySelectorAll('.card');
+  let visible = 0;
+  let total = 0;
+
+  allCards.forEach(el => {
+    total++;
+    const cardId = el.dataset.id;
+    if (!cardId) return;
+
+    let card = null;
+    for (const col of COLUMNS) {
+      const found = (boardData[col] || []).find(c => c.id === cardId);
+      if (found) { card = found; break; }
+    }
+    if (!card) return;
+
+    if (!q) {
+      el.classList.remove('filter-hidden');
+      visible++;
+      return;
+    }
+
+    const haystack = [
+      card.title || '',
+      card.description || '',
+      card.assignee || '',
+      ...(card.tags || [])
+    ].join(' ').toLowerCase();
+
+    if (haystack.includes(q)) {
+      el.classList.remove('filter-hidden');
+      visible++;
+    } else {
+      el.classList.add('filter-hidden');
+    }
+  });
+  for (const col of COLUMNS) {
+    const list = document.getElementById(`list-${col}`);
+    const cards = list.querySelectorAll('.card');
+    const emptyEl = list.querySelector('.empty-state');
+    const visibleCards = Array.from(cards).filter(c => !c.classList.contains('filter-hidden'));
+
+    if (q && visibleCards.length === 0 && cards.length > 0) {
+      if (!emptyEl) {
+        const emptyDiv = document.createElement('div');
+        emptyDiv.className = 'empty-state';
+        emptyDiv.textContent = 'No matches';
+        list.appendChild(emptyDiv);
+      } else {
+        emptyEl.textContent = 'No matches';
+        emptyEl.style.display = '';
+      }
+    } else {
+      if (emptyEl) {
+        if (cards.length === 0) {
+          emptyEl.textContent = 'No cards';
+          emptyEl.style.display = '';
+        } else {
+          emptyEl.style.display = 'none';
+        }
+      }
+    }
+  }
+
+  const countEl = document.getElementById('search-count');
+  if (q) {
+    countEl.textContent = `${visible}/${total}`; // e.g. "3/12"
+    countEl.classList.add('has-query'); // turns accent color via CSS
+  } else {
+    countEl.textContent = ''; // hide counter when not filtering
+    countEl.classList.remove('has-query');
+  }
+}
+
+document.getElementById('search-input').addEventListener('input', function(e) {
+  searchQuery = e.target.value;
+  applySearch();
+});
+
 function initSortable() {
   for (const col of COLUMNS) {
     new Sortable(document.getElementById(`list-${col}`), {
       group: 'board', animation: 150, ghostClass: 'sortable-ghost', dragClass: 'sortable-drag',
+      filter: '.filter-hidden, .empty-state',
       onEnd: async function(evt) {
         const cardId = evt.item.dataset.id;
         const newCol = evt.to.id.replace('list-', '');
