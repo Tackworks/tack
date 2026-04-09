@@ -12,6 +12,8 @@ No vendor lock-in. No cloud dependency. SQLite backend. Self-host in 30 seconds.
 
 **Status: alpha.** Developed and tested internally on sandboxed development machines. If you deploy this: inspect the code, run in a VM or isolated environment, and back up your data before upgrading. This has not been independently security audited. See [SECURITY.md](SECURITY.md) for details.
 
+**Auth note:** If you set `TACK_API_KEY`, the server will require the key for all write operations via the API. However, the web UI does not currently send the API key with its requests. This means drag-and-drop, card creation, and other UI write actions will be rejected by the server when a key is set. Agent API calls (which include the key in headers) will work correctly. Web UI auth support is planned.
+
 ## Quick Start
 
 ```bash
@@ -113,6 +115,12 @@ Environment variables:
 - `/` — Focus search
 - `Esc` — Close modal / clear search
 - Double-click card to edit
+
+## Known Limitations
+
+- **Web UI does not support API key auth.** If `TACK_API_KEY` is set, the web UI cannot perform write operations (create cards, drag-and-drop, edit). API clients that send the key in headers work fine. Fix planned for next release.
+- **Webhooks not yet implemented.** See [Spur](https://github.com/Tackworks/spur) for webhook event relay.
+- **No built-in HTTPS or rate limiting.** Use a reverse proxy for production deployments. See [SECURITY.md](SECURITY.md).
 
 ## Dependencies
 
