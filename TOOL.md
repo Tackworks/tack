@@ -128,8 +128,9 @@ GET /api/changes?since=2026-04-07T12:00:00+00:00
 | `in_progress` | Actively being worked on | The assigned agent |
 | `awaiting_decision` | Needs human input | Agent who hit a decision point |
 | `awaiting_approval` | Agent proposed a plan, needs yes/no | Agent requesting approval |
-| `blocked` | Cannot proceed | Agent who found the blocker |
+| `deferred` | Postponed — auto-returns to awaiting_decision after TACK_DEFER_DAYS | Human or agent deferring |
 | `done` | Completed | Agent who finished the work |
+| `blocked` | Cannot proceed | Agent who found the blocker |
 
 ## Priorities
 
@@ -178,7 +179,7 @@ For agent frameworks that use OpenAI-format tool definitions:
         "properties": {
           "title": {"type": "string", "description": "Short task title"},
           "description": {"type": "string", "description": "Details and context"},
-          "column_name": {"type": "string", "enum": ["inbox","approved","in_progress","awaiting_decision","awaiting_approval","blocked","done"]},
+          "column_name": {"type": "string", "enum": ["inbox","approved","in_progress","awaiting_decision","awaiting_approval","deferred","done","blocked"]},
           "assignee": {"type": "string", "description": "Agent or person responsible"},
           "priority": {"type": "string", "enum": ["low","normal","high","critical"]},
           "tags": {"type": "array", "items": {"type": "string"}}
@@ -196,7 +197,7 @@ For agent frameworks that use OpenAI-format tool definitions:
         "type": "object",
         "properties": {
           "card_id": {"type": "string"},
-          "column_name": {"type": "string", "enum": ["inbox","approved","in_progress","awaiting_decision","awaiting_approval","blocked","done"]},
+          "column_name": {"type": "string", "enum": ["inbox","approved","in_progress","awaiting_decision","awaiting_approval","deferred","done","blocked"]},
           "actor": {"type": "string", "description": "Your agent name"}
         },
         "required": ["card_id", "column_name"]
@@ -231,7 +232,7 @@ For agent frameworks that use OpenAI-format tool definitions:
       "parameters": {
         "type": "object",
         "properties": {
-          "column": {"type": "string", "enum": ["inbox","approved","in_progress","awaiting_decision","awaiting_approval","blocked","done"]},
+          "column": {"type": "string", "enum": ["inbox","approved","in_progress","awaiting_decision","awaiting_approval","deferred","done","blocked"]},
           "assignee": {"type": "string"},
           "fields": {"type": "string", "description": "Comma-separated field names to return, e.g. 'id,title,column_name'"}
         }
@@ -341,5 +342,6 @@ For agent frameworks that use OpenAI-format tool definitions:
 | `TACK_HOST` | `127.0.0.1` | Bind address |
 | `TACK_PORT` | `8795` | Port number |
 | `TACK_DB` | `./data/board.db` | SQLite database path |
-| `TACK_WEBHOOKS` | (none) | Comma-separated webhook URLs for event notifications |
 | `TACK_DONE_ARCHIVE_DAYS` | `7` | Auto-hide done cards older than this many days from `/api/board` |
+| `TACK_DEFER_DAYS` | `7` | Days before deferred cards auto-return to Awaiting Decision |
+| `TACK_API_KEY` | (none) | Optional API key for write operations (reads remain open) |

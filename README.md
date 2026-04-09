@@ -10,6 +10,8 @@ Tack is a lightweight Kanban board designed for human-AI collaboration. Your AI 
 
 No vendor lock-in. No cloud dependency. SQLite backend. Self-host in 30 seconds.
 
+**Status: alpha.** Developed and tested internally on sandboxed development machines. If you deploy this: inspect the code, run in a VM or isolated environment, and back up your data before upgrading. This has not been independently security audited. See [SECURITY.md](SECURITY.md) for details.
+
 ## Quick Start
 
 ```bash
@@ -77,7 +79,7 @@ The tool spec is model-agnostic. It works with OpenAI, Anthropic, Ollama, llama.
 - **Human-in-the-loop decisions** — Agents post structured questions with options. Humans see clickable buttons in the UI. Click to decide, card moves forward. `GET /api/decisions` gives you the decision queue.
 - **Plan approvals** — Agents propose a plan, humans approve or deny. Simpler than decisions — no options to choose from, just yes/no with optional comments. Denied cards move to blocked with the reason logged. `GET /api/approvals` gives you the approval queue.
 - **Batch operations** — `POST /api/batch` with an array of actions. Create, move, update, claim, release, and note in a single call.
-- **Webhook support** — Set `TACK_WEBHOOKS` to a comma-separated list of URLs. Tack fires POST requests on card_created, card_moved, and decision_made events.
+- **Webhooks** — Planned but not yet implemented. See [Spur](https://github.com/Tackworks/spur) for webhook event relay in the meantime.
 
 ## Columns
 
@@ -88,8 +90,9 @@ The tool spec is model-agnostic. It works with OpenAI, Anthropic, Ollama, llama.
 | **In Progress** | Actively being worked on |
 | **Awaiting Decision** | Needs human input (with structured options) |
 | **Awaiting Approval** | Agent proposed a plan, needs yes/no |
-| **Blocked** | Cannot proceed |
+| **Deferred** | Postponed — auto-returns to Awaiting Decision after `TACK_DEFER_DAYS` |
 | **Done** | Completed |
+| **Blocked** | Cannot proceed |
 
 ## Configuration
 
@@ -100,7 +103,6 @@ Environment variables:
 | `TACK_HOST` | `127.0.0.1` | Bind address |
 | `TACK_PORT` | `8795` | Port number |
 | `TACK_DB` | `./data/board.db` | SQLite database path |
-| `TACK_WEBHOOKS` | (none) | Comma-separated webhook URLs |
 | `TACK_DONE_ARCHIVE_DAYS` | `7` | Auto-hide done cards older than N days from board view |
 | `TACK_DEFER_DAYS` | `7` | Days before deferred cards auto-return to Awaiting Decision |
 | `TACK_API_KEY` | (none) | Optional API key for write operations (reads remain open) |

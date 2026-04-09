@@ -42,7 +42,7 @@ Initial public release.
 - Human-in-the-loop decisions with structured options
 - Plan approvals (yes/no with comments)
 - Batch operations (`POST /api/batch`)
-- Webhook support (`TACK_WEBHOOKS` env var)
+- Webhook support (planned, not yet implemented — use [Spur](https://github.com/Tackworks/spur) for event relay)
 - Activity log and change polling
 - Drag-and-drop web UI with keyboard shortcuts
 - SQLite backend, single-file server
