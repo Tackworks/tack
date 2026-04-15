@@ -14,12 +14,14 @@
     --text: #e0e0e0;
     --text-dim: #8888aa;
     --accent: #53c9b1;
+    --proposed: #9b7dd4;
     --inbox: #5e60ce;
     --progress: #4ea8de;
     --decision: #e8a838;
     --approval-pending: #4ea8de;
     --done: #38b764;
     --blocked: #e05555;
+    --failed: #e05555;
     --critical: #ff4444;
     --high: #ff8844;
     --normal: #4ea8de;
@@ -36,12 +38,14 @@
     --text: #1a1a2e;
     --text-dim: #667085;
     --accent: #0d9373;
+    --proposed: #7b5dbb;
     --inbox: #5e60ce;
     --progress: #2e7db8;
     --decision: #c48520;
     --approval-pending: #2e7db8;
     --done: #2d9254;
     --blocked: #cc3333;
+    --failed: #cc3333;
     --critical: #cc2222;
     --high: #dd6622;
     --normal: #2e7db8;
@@ -117,6 +121,7 @@
     background: var(--border); padding: 2px 7px; border-radius: 10px; font-size: 10px; font-weight: 600;
   }
 
+  .column[data-column="proposed"] .column-header { border-bottom-color: var(--proposed); }
   .column[data-column="inbox"] .column-header { border-bottom-color: var(--inbox); }
   .column[data-column="approved"] .column-header { border-bottom-color: var(--done); }
   .column[data-column="in_progress"] .column-header { border-bottom-color: var(--progress); }
@@ -125,6 +130,7 @@
   .column[data-column="deferred"] .column-header { border-bottom-color: #9b7dd4; }
   .column[data-column="done"] .column-header { border-bottom-color: var(--done); }
   .column[data-column="blocked"] .column-header { border-bottom-color: var(--blocked); }
+  .column[data-column="failed"] .column-header { border-bottom-color: var(--failed); }
 
   .card-list {
     flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 6px;
@@ -411,6 +417,34 @@
   }
   .follows-badge:hover { color: var(--accent); border-color: var(--accent); }
 
+  #auth-btn {
+    background: var(--bg); border: 1px solid var(--border); color: var(--text-dim);
+    padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 14px; line-height: 1;
+    font-family: var(--font);
+  }
+  #auth-btn:hover { border-color: var(--accent); color: var(--text); }
+
+  .auth-modal-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 300;
+    justify-content: center; align-items: center;
+  }
+  .auth-modal-overlay.active { display: flex; }
+  .auth-modal {
+    background: var(--surface); border: 1px solid var(--accent); border-radius: 8px;
+    padding: 16px 20px; width: 360px;
+  }
+  .auth-modal h3 { font-size: 13px; color: var(--accent); margin-bottom: 4px; }
+  .auth-modal p { font-size: 11px; color: var(--text-dim); margin-bottom: 12px; }
+  .auth-modal input {
+    width: 100%; background: var(--bg); border: 1px solid var(--border); color: var(--text);
+    font-family: var(--font); font-size: 13px; padding: 8px 10px; border-radius: 4px;
+  }
+  .auth-modal .auth-modal-buttons { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; }
+  .auth-modal .auth-modal-buttons button {
+    padding: 5px 14px; border-radius: 4px; font-family: var(--font); font-size: 11px;
+    cursor: pointer; border: 1px solid var(--border);
+  }
+
   @media (max-width: 768px) { .column { min-width: 200px; } }
 </style>
 </head>
@@ -423,6 +457,7 @@
   </div>
   <div class="header-right">
     <button id="theme-toggle" title="Toggle light/dark theme">&#9789;</button>
+    <button id="auth-btn" title="API key" onclick="onAuthBtnClick()">&#128275;</button>
     <span class="status-dot"></span>
     <span class="status-text" id="status-text">connected</span>
     <button id="add-card-btn">+ New Card</button>
@@ -430,6 +465,10 @@
 </header>
 
 <div class="board" id="board">
+  <div class="column" data-column="proposed">
+    <div class="column-header">Proposed <span class="count" id="count-proposed">0</span></div>
+    <div class="card-list" id="list-proposed"></div>
+  </div>
   <div class="column" data-column="inbox">
     <div class="column-header">Inbox <span class="count" id="count-inbox">0</span></div>
     <div class="card-list" id="list-inbox"></div>
@@ -462,6 +501,10 @@
     <div class="column-header">Done <span class="count" id="count-done">0</span></div>
     <div class="card-list" id="list-done"></div>
   </div>
+  <div class="column" data-column="failed">
+    <div class="column-header">Failed <span class="count" id="count-failed">0</span></div>
+    <div class="card-list" id="list-failed"></div>
+  </div>
 </div>
 
 <div class="activity-bar" id="activity-bar">
@@ -478,6 +521,7 @@
     <textarea id="card-description" placeholder="Details, context, acceptance criteria..."></textarea>
     <label>Column</label>
     <select id="card-column">
+      <option value="proposed">Proposed</option>
       <option value="inbox">Inbox</option>
       <option value="approved">Approved</option>
       <option value="in_progress">In Progress</option>
@@ -486,6 +530,7 @@
       <option value="deferred">Deferred</option>
       <option value="blocked">Blocked</option>
       <option value="done">Done</option>
+      <option value="failed">Failed</option>
     </select>
     <label>Assignee</label>
     <input type="text" id="card-assignee" placeholder="Who's responsible?">
@@ -549,14 +594,82 @@
   </div>
 </div>
 
+<div class="auth-modal-overlay" id="auth-overlay">
+  <div class="auth-modal">
+    <h3>API Key Required</h3>
+    <p>This server requires an API key for write operations. Enter it below — it will be stored in your browser.</p>
+    <input type="password" id="auth-key-input" placeholder="Enter API key">
+    <div class="auth-modal-buttons">
+      <button class="btn-cancel" onclick="hideAuthModal()">Cancel</button>
+      <button class="btn-primary" onclick="submitAuthKey()">Save</button>
+    </div>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js"></script>
 <script>
 const API = '';
-const COLUMNS = ['inbox', 'approved', 'in_progress', 'awaiting_decision', 'awaiting_approval', 'deferred', 'blocked', 'done'];
+const AUTH_KEY = 'tack-api-key';
+const COLUMNS = ['proposed', 'inbox', 'approved', 'in_progress', 'awaiting_decision', 'awaiting_approval', 'deferred', 'blocked', 'done', 'failed'];
+
+// --- API Key Auth ---
+async function authFetch(url, options = {}) {
+  const key = localStorage.getItem(AUTH_KEY);
+  if (key) {
+    options.headers = { ...options.headers, 'X-API-Key': key };
+  }
+  const res = await fetch(url, options);
+  if (res.status === 401) {
+    localStorage.removeItem(AUTH_KEY);
+    updateAuthIcon();
+    showAuthModal();
+  }
+  return res;
+}
+
+function showAuthModal() {
+  document.getElementById('auth-key-input').value = '';
+  document.getElementById('auth-overlay').classList.add('active');
+  document.getElementById('auth-key-input').focus();
+}
+
+function hideAuthModal() {
+  document.getElementById('auth-overlay').classList.remove('active');
+}
+
+function submitAuthKey() {
+  const key = document.getElementById('auth-key-input').value.trim();
+  if (!key) return;
+  localStorage.setItem(AUTH_KEY, key);
+  updateAuthIcon();
+  hideAuthModal();
+}
+
+function onAuthBtnClick() {
+  if (localStorage.getItem(AUTH_KEY)) {
+    if (confirm('Clear stored API key?')) {
+      localStorage.removeItem(AUTH_KEY);
+      updateAuthIcon();
+    }
+  } else {
+    showAuthModal();
+  }
+}
+
+function updateAuthIcon() {
+  const btn = document.getElementById('auth-btn');
+  if (localStorage.getItem(AUTH_KEY)) {
+    btn.innerHTML = '&#128274;';
+    btn.title = 'API key set (click to clear)';
+  } else {
+    btn.innerHTML = '&#128275;';
+    btn.title = 'No API key (click to set)';
+  }
+}
 const COLUMN_LABELS = {
-  inbox: 'Inbox', approved: 'Approved', in_progress: 'In Progress',
+  proposed: 'Proposed', inbox: 'Inbox', approved: 'Approved', in_progress: 'In Progress',
   awaiting_decision: 'Awaiting Decision', awaiting_approval: 'Awaiting Approval',
-  deferred: 'Deferred', blocked: 'Blocked', done: 'Done'
+  deferred: 'Deferred', blocked: 'Blocked', done: 'Done', failed: 'Failed'
 };
 let boardData = {};
 
@@ -691,7 +804,7 @@ function initSortable() {
           return;
         }
         try {
-          await fetch(`${API}/api/cards/${cardId}/move`, {
+          await authFetch(`${API}/api/cards/${cardId}/move`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ column_name: newCol, position: evt.newIndex })
           });
@@ -765,9 +878,9 @@ async function saveCard() {
   if (!data.title) { alert('Title is required'); return; }
   try {
     if (id) {
-      await fetch(`${API}/api/cards/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+      await authFetch(`${API}/api/cards/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
     } else {
-      await fetch(`${API}/api/cards`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+      await authFetch(`${API}/api/cards`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
     }
     closeModal(); await fetchBoard(); await fetchActivity();
   } catch (e) {}
@@ -779,7 +892,7 @@ async function deleteCard() {
   const reason = prompt('Why are you deleting this card? (consolidation, no longer relevant, etc.)');
   if (!reason) return;
   try {
-    await fetch(`${API}/api/cards/${id}/delete`, {
+    await authFetch(`${API}/api/cards/${id}/delete`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ reason: reason, actor: 'user' })
@@ -790,7 +903,7 @@ async function deleteCard() {
 
 async function submitDecision(cardId, choice) {
   try {
-    const res = await fetch(`${API}/api/cards/${cardId}/decide`, {
+    const res = await authFetch(`${API}/api/cards/${cardId}/decide`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ choice: choice, actor: 'user', move_to: 'in_progress' })
@@ -805,7 +918,7 @@ async function submitApproval(cardId, approved) {
   const comment = approved ? '' : (prompt('Reason for denial (optional):') || '');
   if (!approved && comment === null) return;
   try {
-    const res = await fetch(`${API}/api/cards/${cardId}/approve`, {
+    const res = await authFetch(`${API}/api/cards/${cardId}/approve`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ approved: approved, actor: 'user', comment: comment || '' })
@@ -843,7 +956,7 @@ async function saveMoveNote() {
   const text = document.getElementById('note-move-text').value.trim();
   if (!text || !pendingMoveCardId) { skipMoveNote(); return; }
   try {
-    await fetch(`${API}/api/cards/${pendingMoveCardId}/notes`, {
+    await authFetch(`${API}/api/cards/${pendingMoveCardId}/notes`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ content: text, author: 'user' })
     });
@@ -882,7 +995,7 @@ function toggleFollowup() {
 function skipComplete() {
   // Just move without completion note
   if (pendingCompleteCardId) {
-    fetch(`${API}/api/cards/${pendingCompleteCardId}/move`, {
+    authFetch(`${API}/api/cards/${pendingCompleteCardId}/move`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ column_name: 'done' })
     }).then(() => { fetchBoard(); fetchActivity(); });
@@ -899,7 +1012,7 @@ async function submitComplete() {
   const followupDesc = document.getElementById('followup-desc').value.trim();
 
   try {
-    const res = await fetch(`${API}/api/cards/${pendingCompleteCardId}/complete`, {
+    const res = await authFetch(`${API}/api/cards/${pendingCompleteCardId}/complete`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         note, followup, actor: 'user',
@@ -954,7 +1067,7 @@ async function addNoteFromModal() {
   const text = input.value.trim();
   if (!cardId || !text) return;
   try {
-    await fetch(`${API}/api/cards/${cardId}/notes`, {
+    await authFetch(`${API}/api/cards/${cardId}/notes`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ content: text, author: 'user' })
     });
@@ -965,7 +1078,7 @@ async function addNoteFromModal() {
 
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
-    closeModal(); skipMoveNote();
+    closeModal(); skipMoveNote(); hideAuthModal();
     const search = document.getElementById('search-input');
     if (document.activeElement === search) { search.blur(); search.value = ''; searchQuery = ''; renderBoard(); }
   }
@@ -1014,8 +1127,14 @@ function filterCards(cards) {
   });
 }
 
+document.getElementById('auth-overlay').onclick = (e) => { if (e.target === e.currentTarget) hideAuthModal(); };
+document.getElementById('auth-key-input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); submitAuthKey(); }
+});
+
 async function init() {
   setTheme(getTheme());
+  updateAuthIcon();
   await fetchBoard(); await fetchActivity(); initSortable();
   setInterval(async () => { await fetchBoard(); await fetchActivity(); }, 10000);
 }

@@ -1,5 +1,31 @@
 # Changelog
 
+## [2.1.0] - 2026-04-15
+
+### Added
+- **Web UI API key support** — when `TACK_API_KEY` is set, the web UI now prompts for the key on the first write attempt, stores it in localStorage, and includes it in all subsequent write requests. A lock icon in the header shows auth state and allows clearing the stored key.
+
+## [2.0.0] - 2026-04-13
+
+### Added
+- **Proposed column** — agents create cards in `proposed` for human review before moving to inbox.
+- **Failed column** — cards that failed can be tracked separately for retrospectives and andon alerts.
+- **WIP limits** — configurable global (`TACK_WIP_IN_PROGRESS`, default 5) and per-agent (`TACK_WIP_PER_AGENT`, default 1) limits on in_progress cards. Returns HTTP 429 when limits are hit.
+- **Definition of Done** — `POST /complete` now requires a completion note of at least 50 characters. Prevents empty or low-effort completions.
+- **Board metrics endpoint** — `GET /api/board/metrics` returns column counts, WIP status, stale card detection (in_progress with no notes in 24h), andon alerts (fail_count >= 3), and aging awaiting cards (>72h).
+- **Structured logging** — JSON-formatted logs to `logs/board.log` with 10MB rotating file handler. Logs card creates, moves, completions, deletions, notes, and auth failures.
+- **entered_column_at tracking** — cards record when they entered their current column, used for stale/aging detection in metrics.
+- **fail_count field** — tracks how many times a card has failed, used for andon alerts in metrics.
+- **147-test suite** — 39 new tests covering WIP limits, Definition of Done, board metrics, proposed/failed columns, structured logging, and entered_column_at tracking.
+
+### Changed
+- Column list expanded from 8 to 10 columns (added `proposed` and `failed`).
+- `POST /complete` now returns 400 if note is missing or under 50 characters (was optional in v1).
+- Version bumped from 1.1.0 to 2.0.0.
+
+### Breaking
+- **Complete endpoint requires note** — agents that previously called `/complete` without a note will now receive 400. Update agents to include a descriptive completion note (>= 50 chars).
+
 ## [1.3.0] - 2026-04-08
 
 ### Added

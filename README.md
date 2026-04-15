@@ -12,7 +12,7 @@ No vendor lock-in. No cloud dependency. SQLite backend. Self-host in 30 seconds.
 
 **Status: alpha.** Developed and tested internally on sandboxed development machines. If you deploy this: inspect the code, run in a VM or isolated environment, and back up your data before upgrading. This has not been independently security audited. See [SECURITY.md](SECURITY.md) for details.
 
-**Auth note:** If you set `TACK_API_KEY`, the server will require the key for all write operations via the API. However, the web UI does not currently send the API key with its requests. This means drag-and-drop, card creation, and other UI write actions will be rejected by the server when a key is set. Agent API calls (which include the key in headers) will work correctly. Web UI auth support is planned.
+**Auth note:** If you set `TACK_API_KEY`, the server will require the key for all write operations. The web UI will prompt for the key on the first write attempt and store it in your browser's localStorage. A lock icon in the header shows whether a key is stored.
 
 ## Quick Start
 
@@ -69,6 +69,7 @@ The tool spec is model-agnostic. It works with OpenAI, Anthropic, Ollama, llama.
 | `GET` | `/api/approvals` | List all pending approvals |
 | `POST` | `/api/batch` | Execute multiple operations in one call |
 | `DELETE` | `/api/cards/{id}` | Delete a card |
+| `GET` | `/api/board/metrics` | Board health metrics (column counts, stale cards, WIP) |
 | `GET` | `/api/activity` | Recent activity log |
 | `GET` | `/api/changes` | Poll for changes since a timestamp |
 | `GET` | `/health` | Health check |
@@ -81,20 +82,26 @@ The tool spec is model-agnostic. It works with OpenAI, Anthropic, Ollama, llama.
 - **Human-in-the-loop decisions** — Agents post structured questions with options. Humans see clickable buttons in the UI. Click to decide, card moves forward. `GET /api/decisions` gives you the decision queue.
 - **Plan approvals** — Agents propose a plan, humans approve or deny. Simpler than decisions — no options to choose from, just yes/no with optional comments. Denied cards move to blocked with the reason logged. `GET /api/approvals` gives you the approval queue.
 - **Batch operations** — `POST /api/batch` with an array of actions. Create, move, update, claim, release, and note in a single call.
+- **WIP limits** — Configurable limits on how many cards can be in progress globally (`TACK_WIP_IN_PROGRESS`) and per agent (`TACK_WIP_PER_AGENT`). Returns 429 with a descriptive message when limits are hit.
+- **Definition of Done** — `POST /complete` requires a completion note of at least 50 characters. Prevents empty completions.
+- **Board metrics** — `GET /api/board/metrics` returns column counts, WIP status, stale card detection, andon alerts (fail_count >= 3), and aging awaiting cards.
+- **Structured logging** — JSON-formatted logs written to `logs/board.log` with rotating file handler. Logs card creates, moves, completions, deletions, notes, and auth failures.
 - **Webhooks** — Planned but not yet implemented. See [Spur](https://github.com/Tackworks/spur) for webhook event relay in the meantime.
 
 ## Columns
 
 | Column | Purpose |
 |--------|---------|
+| **Proposed** | Agent-proposed tasks awaiting review |
 | **Inbox** | New tasks, not yet reviewed |
 | **Approved** | Human approved — agents pick these up |
 | **In Progress** | Actively being worked on |
 | **Awaiting Decision** | Needs human input (with structured options) |
 | **Awaiting Approval** | Agent proposed a plan, needs yes/no |
 | **Deferred** | Postponed — auto-returns to Awaiting Decision after `TACK_DEFER_DAYS` |
-| **Done** | Completed |
 | **Blocked** | Cannot proceed |
+| **Done** | Completed |
+| **Failed** | Task attempted but failed — tracks failure for retrospectives |
 
 ## Configuration
 
@@ -108,6 +115,9 @@ Environment variables:
 | `TACK_DONE_ARCHIVE_DAYS` | `7` | Auto-hide done cards older than N days from board view |
 | `TACK_DEFER_DAYS` | `7` | Days before deferred cards auto-return to Awaiting Decision |
 | `TACK_API_KEY` | (none) | Optional API key for write operations (reads remain open) |
+| `TACK_WIP_IN_PROGRESS` | `5` | Max cards allowed in the In Progress column globally |
+| `TACK_WIP_PER_AGENT` | `1` | Max cards a single agent can have in In Progress |
+| `TACK_WIP_AWAITING` | `8` | Max cards in awaiting columns (reserved for future enforcement) |
 
 ## Keyboard Shortcuts
 
@@ -118,7 +128,6 @@ Environment variables:
 
 ## Known Limitations
 
-- **Web UI does not support API key auth.** If `TACK_API_KEY` is set, the web UI cannot perform write operations (create cards, drag-and-drop, edit). API clients that send the key in headers work fine. Fix planned for next release.
 - **Webhooks not yet implemented.** See [Spur](https://github.com/Tackworks/spur) for webhook event relay.
 - **No built-in HTTPS or rate limiting.** Use a reverse proxy for production deployments. See [SECURITY.md](SECURITY.md).
 
